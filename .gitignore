@@ -1,0 +1,24 @@
+# 🔒 CRITICAL SECURITY: Never commit Telegram sessions
+sessions/*.session
+sessions/*.session-journal
+
+# 📁 Project Data & Extracted Links (Keep your data private)
+data/links/
+
+# 🐍 Virtual Environments
+env/
+venv/
+.env
+
+# ⚙️ Python Caches & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 🧪 Testing & Logs
+.pytest_cache/
+*.log
+
+# 🖥️ OS Generated Files
+.DS_Store
+Thumbs.db

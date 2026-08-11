@@ -1,0 +1,21 @@
+# --- MTProto & Userbot ---
+pyrogram==2.0.106
+
+# --- Telegram Bot API ---
+aiogram==3.4.1
+
+# --- Web Scraping (WhatsApp Validation) ---
+requests==2.31.0
+beautifulsoup4==4.12.3
+
+# --- Task Scheduling ---
+APScheduler==3.10.4
+
+# --- Environment & Configuration ---
+python-dotenv==1.0.1
+
+# --- Testing & Code Quality ---
+pytest==8.1.1
+pytest-asyncio==0.23.6
+pytest-mock==3.14.0
+mypy==1.9.0
