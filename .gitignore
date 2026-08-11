@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # 🔒 CRITICAL SECURITY: Never commit Telegram sessions
 sessions/*.session
 sessions/*.session-journal
@@ -22,3 +23,4 @@ __pycache__/
 # 🖥️ OS Generated Files
 .DS_Store
 Thumbs.db
+=======
