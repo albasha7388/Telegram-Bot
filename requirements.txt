@@ -1,5 +1,6 @@
 # --- MTProto & Userbot ---
 pyrogram==2.0.106
+TgCrypto==1.2.5
 
 # --- Telegram Bot API ---
 aiogram==3.4.1
