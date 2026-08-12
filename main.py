@@ -6,6 +6,8 @@ starts the background midnight scheduler and hourly feedback reporter, and runs 
 """
 
 import asyncio
+import os
+from aiohttp import web
 from aiogram import Bot, Dispatcher
 from bot_ui.handlers import router as ui_router
 from bot_ui.joiner_handlers import router as joiner_router
@@ -16,6 +18,30 @@ from core.scheduler import start_scheduler
 
 # Initialize root application logger
 logger = setup_logger("main")
+
+
+async def health_check(request: web.Request) -> web.Response:
+    """Handle incoming HTTP GET health check requests for cloud hosting platforms.
+
+    Args:
+        request: The incoming aiohttp web Request object.
+
+    Returns:
+        web.Response: Plain text response confirming the bot is active.
+    """
+    return web.Response(text="Bot is alive!")
+
+
+async def start_dummy_server() -> None:
+    """Start a lightweight background aiohttp web server to satisfy Render/cloud health checks."""
+    port = int(os.environ.get("PORT", 10000))
+    app = web.Application()
+    app.router.add_get('/', health_check)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    logger.info(f"Dummy web server started on port {port} for Render health checks.")
 
 
 def create_bot(token: str | None = None) -> Bot:
@@ -55,7 +81,8 @@ async def main() -> None:
 
     logger.info("Starting Aiogram polling loop for Control UI...")
     try:
-        await dp.start_polling(bot)
+        asyncio.create_task(start_dummy_server())
+        await dp.start_polling(bot, drop_pending_updates=True)
     finally:
         logger.info("Shutting down background scheduler and bot session...")
         scheduler.shutdown(wait=False)

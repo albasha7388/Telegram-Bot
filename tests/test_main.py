@@ -31,8 +31,41 @@ def test_create_bot_custom_token() -> None:
 
 
 @pytest.mark.asyncio
+async def test_health_check_endpoint() -> None:
+    """Test health check HTTP endpoint returns expected 200 response and text."""
+    mock_request = MagicMock()
+    response = await main_app.health_check(mock_request)
+    assert response.status == 200
+    assert response.text == "Bot is alive!"
+
+
+@pytest.mark.asyncio
+async def test_start_dummy_server_binding(mocker: MockerFixture) -> None:
+    """Test start_dummy_server sets up aiohttp Application, AppRunner, and TCPSite."""
+    mock_app = MagicMock()
+    mocker.patch("aiohttp.web.Application", return_value=mock_app)
+
+    mock_runner = MagicMock()
+    mock_runner.setup = AsyncMock()
+    mocker.patch("aiohttp.web.AppRunner", return_value=mock_runner)
+
+    mock_site = MagicMock()
+    mock_site.start = AsyncMock()
+    mock_tcp_site = mocker.patch("aiohttp.web.TCPSite", return_value=mock_site)
+
+    mocker.patch.dict("os.environ", {"PORT": "8080"})
+
+    await main_app.start_dummy_server()
+
+    mock_app.router.add_get.assert_called_once_with('/', main_app.health_check)
+    mock_runner.setup.assert_awaited_once()
+    mock_tcp_site.assert_called_once_with(mock_runner, '0.0.0.0', 8080)
+    mock_site.start.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_main_polling_loop_invocation(mocker: MockerFixture) -> None:
-    """Test that main() properly initializes components, starts scheduler, and executes start_polling."""
+    """Test that main() properly initializes components, starts dummy server, starts scheduler, and executes start_polling."""
     mock_bot = MagicMock()
     mock_bot.session.close = AsyncMock()
 
@@ -44,11 +77,13 @@ async def test_main_polling_loop_invocation(mocker: MockerFixture) -> None:
 
     mocker.patch("main.create_bot", return_value=mock_bot)
     mocker.patch("main.create_dispatcher", return_value=mock_dp)
+    mock_start_dummy = mocker.patch("main.start_dummy_server", return_value=None)
 
     await main_app.main()
 
     mock_start_scheduler.assert_called_once()
-    mock_dp.start_polling.assert_awaited_once_with(mock_bot)
+    mock_start_dummy.assert_called_once()
+    mock_dp.start_polling.assert_awaited_once_with(mock_bot, drop_pending_updates=True)
     mock_scheduler.shutdown.assert_called_once_with(wait=False)
     mock_bot.session.close.assert_awaited_once()
 
