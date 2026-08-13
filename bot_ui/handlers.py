@@ -781,12 +781,15 @@ async def download_date_callback_handler(callback: CallbackQuery, state: FSMCont
         return
 
     await state.set_state(DownloadState.selecting_file)
-    await state.update_data(selected_date=selected_date)
+    await state.update_data(selected_date=selected_date, current_page=1)
 
+    page_size = 10
+    total_pages = max(1, (len(files) + page_size - 1) // page_size)
+    page_info = f" (Page 1/{total_pages})" if total_pages > 1 else ""
     prompt_text = (
         f"📂 <b>Download: {display_title} (Step 2/2)</b>\n\n"
         f"📅 Date: <code>{selected_date}</code>\n"
-        f"📄 Available Files: <b>{len(files)}</b>\n\n"
+        f"📄 Available Files: <b>{len(files)}</b>{page_info}\n\n"
         "Click on a file below to download it directly:"
     )
 
@@ -795,7 +798,12 @@ async def download_date_callback_handler(callback: CallbackQuery, state: FSMCont
             await callback.message.edit_text(
                 text=prompt_text,
                 parse_mode="HTML",
-                reply_markup=get_download_files_keyboard(files),
+                reply_markup=get_download_files_keyboard(
+                    files=files,
+                    category=category,
+                    date_str=selected_date,
+                    page=1,
+                ),
             )
         except TelegramBadRequest as exc:
             logger.debug("Failed editing text on download date selection: %s", exc)
@@ -806,6 +814,85 @@ async def download_date_callback_handler(callback: CallbackQuery, state: FSMCont
         callback.from_user.id,
         selected_date,
         category,
+    )
+
+
+@router.callback_query(F.data.startswith("dl_page_"))
+async def download_page_callback_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Handle pagination navigation for categorized link download file list.
+
+    Intercepts callbacks of format dl_page_{category}_{date}_{page} and dynamically
+    refreshes the message text and inline keyboard for the requested page.
+
+    Args:
+        callback: Incoming callback query containing category, date, and page index.
+        state: FSM execution context.
+    """
+    if not callback.data:
+        await safe_callback_answer(callback)
+        return
+
+    raw_payload = callback.data[len("dl_page_"):]
+    parts = raw_payload.rsplit("_", 2)
+    if len(parts) != 3:
+        await safe_callback_answer(callback, "⚠️ Invalid page payload.", show_alert=True)
+        return
+
+    category, date_str, page_str = parts[0], parts[1], parts[2]
+    try:
+        page = int(page_str)
+    except ValueError:
+        page = 1
+
+    files = get_files_for_category_and_date(category, date_str)
+    if not files:
+        await safe_callback_answer(callback, f"📭 No link files found for {date_str}.", show_alert=True)
+        return
+
+    state_data = await state.get_data()
+    display_title = state_data.get("category_title")
+    if not display_title:
+        for cat_slug, title in CATEGORY_ACTION_MAP.values():
+            if cat_slug == category:
+                display_title = title
+                break
+        if not display_title:
+            display_title = category.replace("_", " ").title()
+
+    await state.set_state(DownloadState.selecting_file)
+    await state.update_data(category=category, selected_date=date_str, current_page=page)
+
+    page_size = 10
+    total_pages = max(1, (len(files) + page_size - 1) // page_size)
+    prompt_text = (
+        f"📂 <b>Download: {display_title} (Step 2/2)</b>\n\n"
+        f"📅 Date: <code>{date_str}</code>\n"
+        f"📄 Available Files: <b>{len(files)}</b> (Page {page}/{total_pages})\n\n"
+        "Click on a file below to download it directly:"
+    )
+
+    if callback.message:
+        try:
+            await callback.message.edit_text(
+                text=prompt_text,
+                parse_mode="HTML",
+                reply_markup=get_download_files_keyboard(
+                    files=files,
+                    category=category,
+                    date_str=date_str,
+                    page=page,
+                ),
+            )
+        except TelegramBadRequest as exc:
+            logger.debug("Failed editing text on download page navigation: %s", exc)
+
+    await safe_callback_answer(callback)
+    logger.info(
+        "Admin user %d navigated to page %d for category '%s' date '%s'.",
+        callback.from_user.id,
+        page,
+        category,
+        date_str,
     )
 
 

@@ -393,29 +393,73 @@ def get_download_dates_keyboard(dates: list[str]) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def get_download_files_keyboard(files: list[str]) -> InlineKeyboardMarkup:
-    """Generate an inline keyboard listing available link part files for a selected date and category.
+def get_download_files_keyboard(
+    files: list[str],
+    category: str = "telegram_groups",
+    date_str: str = "",
+    page: int = 1,
+    page_size: int = 10,
+) -> InlineKeyboardMarkup:
+    """Generate an inline keyboard listing available link part files for a selected date and category with pagination.
+
+    Limits displayed file buttons to a maximum of 10 items per page and renders
+    navigation buttons ([ ⬅️ Prev ] and [ Next ➡️ ]) when multi-page navigation is needed.
 
     Args:
-        files: List of file names (e.g. 'part_1.txt').
+        files: List of file names (e.g. ['part_1.txt', 'part_2.txt']).
+        category: Category identifier for callback routing (default 'telegram_groups').
+        date_str: Date folder name for callback routing (e.g. '2026-08-14').
+        page: Target page number (1-indexed, default 1).
+        page_size: Maximum number of file buttons per page (default 10).
 
     Returns:
-        InlineKeyboardMarkup: File selection keyboard.
+        InlineKeyboardMarkup: Paginated file selection keyboard.
     """
     builder = InlineKeyboardBuilder()
 
-    for file_name in files:
+    total_files = len(files)
+    total_pages = max(1, (total_files + page_size - 1) // page_size)
+    clamped_page = max(1, min(page, total_pages))
+
+    start_idx = (clamped_page - 1) * page_size
+    end_idx = start_idx + page_size
+    page_files = files[start_idx:end_idx]
+
+    # File buttons (1 per row)
+    for file_name in page_files:
         builder.button(
             text=f"📄 {file_name}",
             callback_data=f"dl_file_{file_name}",
         )
 
+    # Navigation buttons row
+    nav_buttons_count = 0
+    if clamped_page > 1:
+        builder.button(
+            text="[ ⬅️ Prev ]",
+            callback_data=f"dl_page_{category}_{date_str}_{clamped_page - 1}",
+        )
+        nav_buttons_count += 1
+
+    if clamped_page < total_pages:
+        builder.button(
+            text="[ Next ➡️ ]",
+            callback_data=f"dl_page_{category}_{date_str}_{clamped_page + 1}",
+        )
+        nav_buttons_count += 1
+
+    # Back navigation button
     builder.button(
         text="🔙 Back to Dates",
         callback_data="dl_back_dates",
     )
 
-    builder.adjust(1)
+    layout: list[int] = [1] * len(page_files)
+    if nav_buttons_count > 0:
+        layout.append(nav_buttons_count)
+    layout.append(1)
+
+    builder.adjust(*layout)
     return builder.as_markup()
 
 

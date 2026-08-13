@@ -179,6 +179,48 @@ def test_get_download_files_keyboard_structure() -> None:
     assert markup.inline_keyboard[2][0].callback_data == "dl_back_dates"
 
 
+def test_get_download_files_keyboard_pagination() -> None:
+    """Test download files keyboard pagination across multiple pages with Prev and Next buttons."""
+    files = [f"part_{i}.txt" for i in range(1, 26)]  # 25 files -> 3 pages
+
+    # Page 1: 10 files + Next button + Back button
+    markup_p1 = get_download_files_keyboard(files, category="telegram_groups", date_str="2026-08-14", page=1)
+    assert markup_p1.inline_keyboard is not None
+    assert len(markup_p1.inline_keyboard) == 12  # 10 files + 1 nav + 1 back
+    assert markup_p1.inline_keyboard[0][0].text == "📄 part_1.txt"
+    assert markup_p1.inline_keyboard[9][0].text == "📄 part_10.txt"
+    nav_row_p1 = markup_p1.inline_keyboard[10]
+    assert len(nav_row_p1) == 1
+    assert nav_row_p1[0].text == "[ Next ➡️ ]"
+    assert nav_row_p1[0].callback_data == "dl_page_telegram_groups_2026-08-14_2"
+    assert markup_p1.inline_keyboard[11][0].callback_data == "dl_back_dates"
+
+    # Page 2: 10 files + Prev and Next buttons + Back button
+    markup_p2 = get_download_files_keyboard(files, category="telegram_groups", date_str="2026-08-14", page=2)
+    assert markup_p2.inline_keyboard is not None
+    assert len(markup_p2.inline_keyboard) == 12  # 10 files + 1 nav + 1 back
+    assert markup_p2.inline_keyboard[0][0].text == "📄 part_11.txt"
+    assert markup_p2.inline_keyboard[9][0].text == "📄 part_20.txt"
+    nav_row_p2 = markup_p2.inline_keyboard[10]
+    assert len(nav_row_p2) == 2
+    assert nav_row_p2[0].text == "[ ⬅️ Prev ]"
+    assert nav_row_p2[0].callback_data == "dl_page_telegram_groups_2026-08-14_1"
+    assert nav_row_p2[1].text == "[ Next ➡️ ]"
+    assert nav_row_p2[1].callback_data == "dl_page_telegram_groups_2026-08-14_3"
+
+    # Page 3: 5 files + Prev button + Back button
+    markup_p3 = get_download_files_keyboard(files, category="telegram_groups", date_str="2026-08-14", page=3)
+    assert markup_p3.inline_keyboard is not None
+    assert len(markup_p3.inline_keyboard) == 7  # 5 files + 1 nav + 1 back
+    assert markup_p3.inline_keyboard[0][0].text == "📄 part_21.txt"
+    assert markup_p3.inline_keyboard[4][0].text == "📄 part_25.txt"
+    nav_row_p3 = markup_p3.inline_keyboard[5]
+    assert len(nav_row_p3) == 1
+    assert nav_row_p3[0].text == "[ ⬅️ Prev ]"
+    assert nav_row_p3[0].callback_data == "dl_page_telegram_groups_2026-08-14_2"
+    assert markup_p3.inline_keyboard[6][0].callback_data == "dl_back_dates"
+
+
 def test_get_back_keyboard() -> None:
     """Test back keyboard structure contains single back button."""
     markup = get_back_keyboard()
@@ -775,12 +817,47 @@ async def test_download_date_callback_handler_renders_files(mocker: MockerFixtur
     await handlers.download_date_callback_handler(mock_callback, mock_state)
 
     mock_state.set_state.assert_awaited_once_with(DownloadState.selecting_file)
-    mock_state.update_data.assert_awaited_once_with(selected_date="2026-08-11")
+    mock_state.update_data.assert_awaited_once_with(selected_date="2026-08-11", current_page=1)
     mock_callback.message.edit_text.assert_awaited_once()
     args, kwargs = mock_callback.message.edit_text.call_args
     assert "Download: 📱 WhatsApp" in kwargs["text"]
     assert "2026-08-11" in kwargs["text"]
     assert kwargs["reply_markup"] is not None
+
+
+@pytest.mark.asyncio
+async def test_download_page_callback_handler_navigates_pages(mocker: MockerFixture) -> None:
+    """Test dl_page callback navigates to target page and updates message markup and state."""
+    files = [f"part_{i}.txt" for i in range(1, 26)]
+    mocker.patch(
+        "bot_ui.handlers.get_files_for_category_and_date",
+        return_value=files,
+    )
+
+    mock_state = MagicMock()
+    mock_state.get_data = AsyncMock(
+        return_value={"category": "telegram_groups", "category_title": "✈️ Telegram Groups"}
+    )
+    mock_state.set_state = AsyncMock()
+    mock_state.update_data = AsyncMock()
+
+    mock_callback = MagicMock()
+    mock_callback.from_user.id = 12345
+    mock_callback.data = "dl_page_telegram_groups_2026-08-14_2"
+    mock_callback.message.edit_text = AsyncMock()
+    mock_callback.answer = AsyncMock()
+
+    await handlers.download_page_callback_handler(mock_callback, mock_state)
+
+    mock_state.set_state.assert_awaited_once_with(DownloadState.selecting_file)
+    mock_state.update_data.assert_awaited_once_with(
+        category="telegram_groups", selected_date="2026-08-14", current_page=2
+    )
+    mock_callback.message.edit_text.assert_awaited_once()
+    args, kwargs = mock_callback.message.edit_text.call_args
+    assert "Page 2/3" in kwargs["text"]
+    assert kwargs["reply_markup"] is not None
+    mock_callback.answer.assert_awaited_once()
 
 
 @pytest.mark.asyncio

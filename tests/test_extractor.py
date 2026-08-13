@@ -3,6 +3,7 @@ Unit tests for global group chat link extraction, exact date bounds, granular ta
 """
 
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 import pytest
@@ -215,3 +216,102 @@ async def test_run_extraction_task_catches_group_level_errors(mocker: MockerFixt
 
     saved_count = await extractor.run_extraction_task("test_session")
     assert saved_count == 1
+
+
+def test_extract_and_segregate_telegram_links() -> None:
+    """Test extract_and_segregate_telegram_links correctly segregates standard and folder links."""
+    sample_text = (
+        "Check group https://t.me/PythonGroup, private invite https://t.me/+InviteHash123! "
+        "Also folder https://t.me/addlist/DevFolder and tg://addlist?slug=DesignFolder."
+    )
+    group_links, folder_links = extractor.extract_and_segregate_telegram_links(sample_text)
+
+    assert group_links == ["https://t.me/PythonGroup", "https://t.me/+InviteHash123"]
+    assert folder_links == ["https://t.me/addlist/DevFolder", "https://t.me/addlist/DesignFolder"]
+
+
+def test_extract_and_segregate_telegram_links_empty_or_none() -> None:
+    """Test extract_and_segregate_telegram_links handles empty or non-string inputs safely."""
+    assert extractor.extract_and_segregate_telegram_links("") == ([], [])
+    assert extractor.extract_and_segregate_telegram_links(None) == ([], [])  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_run_extraction_task_mixed_links_segregated_saving(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    """Test processing a batch of mixed links results in separate files in separate category directories."""
+    # Point LINKS_DIR to tmp_path for real disk assertion
+    mocker.patch("core.file_manager.LINKS_DIR", tmp_path)
+    mocker.patch("userbot.extractor.validate_whatsapp_link", return_value=True)
+
+    dialog_group = MagicMock()
+    dialog_group.chat.type = ChatType.GROUP
+    dialog_group.chat.id = -10077777
+    dialog_group.chat.title = "MixedLinksGroup"
+
+    msg1 = MagicMock()
+    msg1.date = None
+    msg1.text = (
+        "Here are groups: https://t.me/TradingGroup and https://t.me/+PrivateInviteKey. "
+        "And folder: https://t.me/addlist/TradingFolder."
+    )
+    msg1.caption = None
+
+    msg2 = MagicMock()
+    msg2.date = None
+    msg2.text = (
+        "Another folder tg://addlist?slug=FinanceFolder and WhatsApp "
+        "https://chat.whatsapp.com/FinanceWaChat123"
+    )
+    msg2.caption = None
+
+    mock_client = MagicMock()
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+    mock_client.get_dialogs.return_value = AsyncCustomIterator([dialog_group])
+    mock_client.get_chat_history.return_value = AsyncCustomIterator([msg1, msg2])
+    mocker.patch("userbot.extractor.Client", return_value=mock_client)
+
+    saved_count = await extractor.run_extraction_task(
+        session_name="test_session",
+        target_type="all",
+    )
+
+    # 2 groups + 2 folders + 1 whatsapp = 5
+    assert saved_count == 5
+
+    date_stamp = datetime.now().strftime("%Y-%m-%d")
+    groups_file = tmp_path / date_stamp / "telegram_groups" / "part_1.txt"
+    folders_file = tmp_path / date_stamp / "telegram_folders" / "part_1.txt"
+    whatsapp_file = tmp_path / date_stamp / "whatsapp" / "part_1.txt"
+
+    # Assert physical directory segregation
+    assert groups_file.exists(), "telegram_groups/part_1.txt must exist"
+    assert folders_file.exists(), "telegram_folders/part_1.txt must exist"
+    assert whatsapp_file.exists(), "whatsapp/part_1.txt must exist"
+
+    groups_content = groups_file.read_text(encoding="utf-8").strip().splitlines()
+    folders_content = folders_file.read_text(encoding="utf-8").strip().splitlines()
+    whatsapp_content = whatsapp_file.read_text(encoding="utf-8").strip().splitlines()
+
+    assert groups_content == [
+        "https://t.me/TradingGroup",
+        "https://t.me/+PrivateInviteKey",
+    ]
+    # Ensure NO addlist in groups file
+    for link in groups_content:
+        assert "addlist" not in link.lower()
+
+    assert folders_content == [
+        "https://t.me/addlist/TradingFolder",
+        "https://t.me/addlist/FinanceFolder",
+    ]
+    # Ensure ALL entries in folders file contain addlist
+    for link in folders_content:
+        assert "addlist" in link.lower()
+
+    assert whatsapp_content == [
+        "https://chat.whatsapp.com/FinanceWaChat123",
+    ]
+

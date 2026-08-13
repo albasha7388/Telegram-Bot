@@ -7,6 +7,7 @@ progress updates to Aiogram, and pipelines discovered links into categorized sto
 Tracks granular extraction metrics per link type for live and final status reports.
 """
 
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Final, Optional
@@ -28,14 +29,73 @@ from core.file_manager import (
     save_whatsapp_link,
 )
 from core.logger_setup import setup_logger
-from validators.folder_validator import extract_folder_links
-from validators.telegram_validator import extract_telegram_links
 from validators.whatsapp_validator import extract_whatsapp_links, validate_whatsapp_link
 
 logger = setup_logger(__name__)
 
 # Base directory for saved sessions
 SESSIONS_DIR: Final[Path] = Path(__file__).resolve().parent.parent / "sessions"
+
+# Combined regex matching standard Telegram links and shareable folder links
+TELEGRAM_COMBINED_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"(?:https?://)?(?:www\.)?(?:t\.me|telegram\.me)/([a-zA-Z0-9_\-+/?=]+)"
+    r"|(?:tg://addlist\?slug=([a-zA-Z0-9_\-]+))",
+    re.IGNORECASE,
+)
+
+
+def extract_and_segregate_telegram_links(text: str) -> tuple[list[str], list[str]]:
+    """Extract standard Telegram links and folder invite links, segregating them into two lists.
+
+    Scrapes both standard Telegram group/channel/invite links and folder share links
+    simultaneously from the given text string, then classifies them based on whether
+    they contain 'addlist'.
+
+    Args:
+        text: Raw message text or caption.
+
+    Returns:
+        tuple[list[str], list[str]]: A tuple containing (group_links, folder_links).
+    """
+    if not text or not isinstance(text, str):
+        logger.debug("Received empty or invalid text input for Telegram dual link extraction.")
+        return [], []
+
+    group_links: list[str] = []
+    folder_links: list[str] = []
+    seen: set[str] = set()
+
+    for match in TELEGRAM_COMBINED_PATTERN.finditer(text):
+        raw_match = match.group(0).rstrip(".,!?:;)]}\"'")
+        if not raw_match:
+            continue
+
+        if "addlist" in raw_match.lower():
+            slug = match.group(2) or match.group(1) or ""
+            slug = slug.rstrip(".,!?:;)]}\"'")
+            if slug.lower().startswith("addlist/"):
+                slug = slug[len("addlist/"):]
+            if not slug:
+                continue
+            normalized_url = f"https://t.me/addlist/{slug}"
+            if normalized_url not in seen:
+                seen.add(normalized_url)
+                folder_links.append(normalized_url)
+        else:
+            identifier = (match.group(1) or "").rstrip(".,!?:;)]}\"'")
+            if not identifier:
+                continue
+            normalized_url = f"https://t.me/{identifier}"
+            if normalized_url not in seen:
+                seen.add(normalized_url)
+                group_links.append(normalized_url)
+
+    logger.debug(
+        "Segregated Telegram links: %d group link(s), %d folder link(s)",
+        len(group_links),
+        len(folder_links),
+    )
+    return group_links, folder_links
 
 
 async def run_extraction_task(
@@ -139,27 +199,31 @@ async def run_extraction_task(
 
                         text_content = message.text or message.caption
                         if text_content:
-                            # 1. Telegram Channel/Group links -> data/links/YYYY-MM-DD/telegram_groups/part_X.txt
-                            if normalized_target in ("all", "tg_groups", "telegram_groups"):
-                                for tg_link in extract_telegram_links(text_content):
-                                    try:
-                                        save_link(tg_link, category="telegram_groups")
-                                        counters["tg_groups"] += 1
-                                        logger.debug("Persisted extracted Telegram link: %s", tg_link)
-                                    except Exception as exc:
-                                        logger.error("Failed to persist Telegram link '%s': %s", tg_link, exc)
+                            # 1. Dual-Extraction for Telegram Links (Segregated into Groups vs Folders)
+                            if normalized_target in ("all", "tg_groups", "telegram_groups", "tg_folders", "telegram_folders"):
+                                group_links, folder_links = extract_and_segregate_telegram_links(text_content)
 
-                            # 2. Telegram Shareable Folder links -> data/links/YYYY-MM-DD/telegram_folders/part_X.txt
-                            if normalized_target in ("all", "tg_folders", "telegram_folders"):
-                                for folder_link in extract_folder_links(text_content):
-                                    try:
-                                        save_link(folder_link, category="telegram_folders")
-                                        counters["tg_folders"] += 1
-                                        logger.debug("Persisted extracted Folder link: %s", folder_link)
-                                    except Exception as exc:
-                                        logger.error("Failed to persist Folder link '%s': %s", folder_link, exc)
+                                # Flush group_links -> data/links/YYYY-MM-DD/telegram_groups/part_X.txt
+                                if normalized_target in ("all", "tg_groups", "telegram_groups"):
+                                    for tg_link in group_links:
+                                        try:
+                                            save_link(tg_link, category="telegram_groups")
+                                            counters["tg_groups"] += 1
+                                            logger.debug("Persisted extracted Telegram group link: %s", tg_link)
+                                        except Exception as exc:
+                                            logger.error("Failed to persist Telegram group link '%s': %s", tg_link, exc)
 
-                            # 3. WhatsApp Group links -> data/links/YYYY-MM-DD/whatsapp/part_X.txt
+                                # Flush folder_links -> data/links/YYYY-MM-DD/telegram_folders/part_X.txt
+                                if normalized_target in ("all", "tg_folders", "telegram_folders"):
+                                    for folder_link in folder_links:
+                                        try:
+                                            save_link(folder_link, category="telegram_folders")
+                                            counters["tg_folders"] += 1
+                                            logger.debug("Persisted extracted Telegram folder link: %s", folder_link)
+                                        except Exception as exc:
+                                            logger.error("Failed to persist Telegram folder link '%s': %s", folder_link, exc)
+
+                            # 2. WhatsApp Group links -> data/links/YYYY-MM-DD/whatsapp/part_X.txt
                             if normalized_target in ("all", "whatsapp"):
                                 for wa_link in extract_whatsapp_links(text_content):
                                     try:

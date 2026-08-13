@@ -293,14 +293,17 @@ pytest -q
   pytest tests/test_extractor.py -v
   ```
 * **Purpose:**
-  Verifies asynchronous global group scanning across all user dialogs, exclusion of private chats, exact date bounds (`start_date`, `end_date`), granular target filtering (`target_type="whatsapp"`, `"tg_groups"`, `"tg_folders"`, `"all"`), live progress message updates via Aiogram, categorized persistence for Telegram, folder, and WhatsApp formats, and verifies graceful error recovery on Telegram access restrictions (`ChatAdminRequired`).
+  Verifies asynchronous global group scanning across all user dialogs, exclusion of private chats, exact date bounds (`start_date`, `end_date`), dual extraction and segregation of standard Telegram group links vs folder (`addlist`) links into separate category directories (`telegram_groups` vs `telegram_folders`), granular target filtering (`target_type="whatsapp"`, `"tg_groups"`, `"tg_folders"`, `"all"`), live progress message updates via Aiogram, categorized persistence for Telegram, folder, and WhatsApp formats, and verifies graceful error recovery on Telegram access restrictions (`ChatAdminRequired`).
 * **Expected Output:**
   ```text
-  tests/test_extractor.py::test_run_global_extraction_task_filters_groups_and_dates PASSED [ 33%]
-  tests/test_extractor.py::test_run_global_extraction_task_target_filtering PASSED         [ 66%]
-  tests/test_extractor.py::test_run_extraction_task_catches_group_level_errors PASSED      [100%]
+  tests/test_extractor.py::test_run_global_extraction_task_filters_groups_and_dates PASSED [ 16%]
+  tests/test_extractor.py::test_run_global_extraction_task_target_filtering PASSED         [ 33%]
+  tests/test_extractor.py::test_run_extraction_task_catches_group_level_errors PASSED      [ 50%]
+  tests/test_extractor.py::test_extract_and_segregate_telegram_links PASSED                [ 66%]
+  tests/test_extractor.py::test_extract_and_segregate_telegram_links_empty_or_none PASSED  [ 83%]
+  tests/test_extractor.py::test_run_extraction_task_mixed_links_segregated_saving PASSED   [100%]
 
-  ============================== 3 passed in 0.06s ==============================
+  ============================== 6 passed in 0.08s ==============================
   ```
 
 ---
