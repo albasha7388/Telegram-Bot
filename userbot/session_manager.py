@@ -7,7 +7,11 @@ Discovers and validates saved Pyrogram session files in the sessions/ directory.
 import os
 from pathlib import Path
 from typing import Final, Optional
+from dotenv import load_dotenv
 from core.logger_setup import setup_logger
+
+# Ensure environment variables are loaded
+load_dotenv()
 
 logger = setup_logger(__name__)
 
@@ -42,7 +46,7 @@ def get_session_string(session_name: str) -> Optional[str]:
     """Retrieve Pyrogram StringSession from environment variables if present.
 
     Checks os.environ for matching keys such as SESSION_{NAME}, SESSION_{NAME.upper()},
-    or exact matches.
+    or case-insensitive matches.
 
     Args:
         session_name: The session identifier to search for.
@@ -54,32 +58,21 @@ def get_session_string(session_name: str) -> Optional[str]:
     if clean_name.endswith(".session"):
         clean_name = clean_name[:-8]
 
-    # Build potential environment variable key candidates
-    candidates: list[str] = []
-    if clean_name.upper().startswith("SESSION_"):
-        suffix = clean_name[len("SESSION_"):]
-        candidates.extend([
-            clean_name,
-            clean_name.upper(),
-            clean_name.lower(),
-            f"SESSION_{suffix}",
-            f"SESSION_{suffix.upper()}",
-            suffix,
-            suffix.upper(),
-        ])
-    else:
-        candidates.extend([
-            f"SESSION_{clean_name}",
-            f"SESSION_{clean_name.upper()}",
-            f"SESSION_{clean_name.lower()}",
-            clean_name,
-            clean_name.upper(),
-        ])
+    if not clean_name:
+        return None
 
-    for key in candidates:
-        val = os.getenv(key)
-        if val and val.strip():
-            return val.strip()
+    # 1. Direct candidate lookups
+    target_key = clean_name if clean_name.upper().startswith("SESSION_") else f"SESSION_{clean_name}"
+    val = os.getenv(target_key) or os.getenv(target_key.upper()) or os.getenv(target_key.lower())
+    if val and val.strip():
+        return val.strip()
+
+    # 2. Case-insensitive scan over os.environ
+    target_upper = target_key.upper()
+    direct_upper = clean_name.upper()
+    for k, v in os.environ.items():
+        if k.upper() in (target_upper, direct_upper) and v and str(v).strip():
+            return str(v).strip()
 
     return None
 
@@ -106,21 +99,27 @@ def get_available_sessions() -> list[str]:
         list[str]: Sorted list of unique session identifiers.
     """
     session_names_set: set[str] = set()
+    env_sessions: list[str] = []
 
     # 1. Discover sessions from environment variables (e.g., SESSION_ACCOUNT_1 -> ACCOUNT_1)
     for key, val in os.environ.items():
-        if key.startswith("SESSION_") and len(key) > len("SESSION_") and val and val.strip():
+        if key.upper().startswith("SESSION_") and len(key) > len("SESSION_") and val and str(val).strip():
             derived_name = key[len("SESSION_"):].strip()
             if derived_name:
+                env_sessions.append(derived_name)
                 session_names_set.add(derived_name)
 
+    logger.info(f"Loaded env sessions: {env_sessions}")
+
     # 2. Discover sessions from local filesystem
+    local_sessions: list[str] = []
     if os.path.exists(SESSIONS_DIR):
         try:
             for filename in os.listdir(SESSIONS_DIR):
                 if filename.endswith(".session") and not filename.endswith(".session-journal"):
                     session_name = filename[:-8].strip()  # Strip '.session'
                     if session_name:
+                        local_sessions.append(session_name)
                         session_names_set.add(session_name)
         except OSError as exc:
             logger.error("Error accessing sessions directory '%s': %s", SESSIONS_DIR, exc, exc_info=True)

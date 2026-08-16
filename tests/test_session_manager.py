@@ -245,3 +245,28 @@ def test_delete_and_rename_env_session_graceful(monkeypatch: pytest.MonkeyPatch)
     renamed = session_manager.rename_session("CLOUD_BOT", "NEW_CLOUD_BOT")
     assert renamed is False
 
+
+def test_get_available_sessions_mocker_patch_dict_env(tmp_path: Path, mocker: MockerFixture) -> None:
+    """Test that get_available_sessions correctly discovers sessions using mocker.patch.dict on os.environ."""
+    import os
+    mocker.patch.object(session_manager, "SESSIONS_DIR", tmp_path)
+    (tmp_path / "local_sample.session").write_text("local_data")
+
+    mocker.patch.dict(
+        os.environ,
+        {
+            "SESSION_TEST_CLOUD": "1BJWap_cloud_session_string",
+            "SESSION_ANOTHER_BOT": "2CKXbq_another_session_string",
+            "OTHER_VAR": "123",
+        },
+        clear=True,
+    )
+
+    sessions = session_manager.get_available_sessions()
+    assert "TEST_CLOUD" in sessions
+    assert "ANOTHER_BOT" in sessions
+    assert "local_sample" in sessions
+    assert "OTHER_VAR" not in sessions
+    assert sessions == ["ANOTHER_BOT", "TEST_CLOUD", "local_sample"]
+
+

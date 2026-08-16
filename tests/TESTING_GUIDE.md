@@ -419,11 +419,12 @@ pytest -q
   tests/test_session_manager.py::test_rename_session_target_already_exists PASSED           [ 72%]
   tests/test_session_manager.py::test_rename_session_invalid_names PASSED                    [ 77%]
   tests/test_session_manager.py::test_rename_session_os_error PASSED                         [ 83%]
-  tests/test_session_manager.py::test_get_available_sessions_merges_env_and_local PASSED    [ 88%]
-  tests/test_session_manager.py::test_get_session_string_and_is_env_session PASSED          [ 94%]
-  tests/test_session_manager.py::test_delete_and_rename_env_session_graceful PASSED         [100%]
+  tests/test_session_manager.py::test_get_available_sessions_merges_env_and_local PASSED    [ 84%]
+  tests/test_session_manager.py::test_get_session_string_and_is_env_session PASSED          [ 89%]
+  tests/test_session_manager.py::test_delete_and_rename_env_session_graceful PASSED         [ 94%]
+  tests/test_session_manager.py::test_get_available_sessions_mocker_patch_dict_env PASSED   [100%]
 
-  ============================== 18 passed in 0.12s ==============================
+  ============================== 19 passed in 0.12s ==============================
   ```
 
 ---
