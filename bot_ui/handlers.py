@@ -167,6 +167,52 @@ def build_session_mgr_text(active_session: Optional[str], total_sessions: int) -
     )
 
 
+async def send_main_menu(
+    bot: Any,
+    chat_id: int,
+    session_name: Optional[str] = None,
+) -> Optional[Message]:
+    """Dispatch a fresh Main Menu dashboard message with updated toggle states to the admin chat.
+
+    Args:
+        bot: Aiogram Bot instance.
+        chat_id: Target admin Telegram chat ID.
+        session_name: Optional MTProto session identifier; if not provided, resolves from user_states.
+
+    Returns:
+        Optional[Message]: Sent message object if successful, or None on failure.
+    """
+    if bot is None or not chat_id:
+        logger.warning("Cannot dispatch Main Menu: bot (%s) or chat_id (%s) is invalid.", bot, chat_id)
+        return None
+
+    if session_name is None:
+        session_name = get_user_active_session(chat_id)
+
+    userbot_on = is_userbot_running(session_name)
+    extractor_on = is_extraction_running(session_name)
+
+    dashboard_text = build_dashboard_text(session_name)
+    reply_markup = get_main_menu(
+        active_session=session_name,
+        is_userbot_on=userbot_on,
+        is_extractor_on=extractor_on,
+    )
+
+    try:
+        msg = await bot.send_message(
+            chat_id=chat_id,
+            text=dashboard_text,
+            parse_mode="HTML",
+            reply_markup=reply_markup,
+        )
+        logger.info("Dispatched fresh Main Menu dashboard to admin chat %d (session: %s).", chat_id, session_name)
+        return msg
+    except Exception as exc:
+        logger.error("Failed dispatching fresh Main Menu to admin chat %d: %s", chat_id, exc)
+        return None
+
+
 @router.message(CommandStart())
 async def start_command_handler(message: Message, state: FSMContext) -> None:
     """Handle the /start command by hard-resetting active FSM states and rendering fresh control panel UI.
@@ -644,8 +690,8 @@ async def system_stats_callback_handler(callback: CallbackQuery) -> None:
     userbot_display = "🟢 <b>RUNNING 🚀</b>" if userbot_on else "⚪ <b>STOPPED ⏸️</b>"
     extractor_display = "🟢 <b>EXTRACTING 📥</b>" if extractor_on else "⚪ <b>IDLE ⏸️</b>"
 
-    stats = await get_total_links_count_async()
-    total_files = len(get_all_link_files())
+    stats = await get_total_links_count_async(session_name=active_session)
+    total_files = len(get_all_link_files(session_name=active_session))
 
     # Daily DMs metric
     session_key = active_session or "default"
@@ -692,8 +738,13 @@ async def open_downloads_menu_callback_handler(callback: CallbackQuery) -> None:
     Args:
         callback: The incoming callback query.
     """
+    user_id = callback.from_user.id
+    active_session = get_user_active_session(user_id)
+    session_text = f"<code>{active_session}</code>" if active_session else "<i>None</i>"
+
     prompt_text = (
-        "📥 <b>Select which category of links you want to download:</b>"
+        "📥 <b>Select which category of links you want to download:</b>\n\n"
+        f"🟢 Active Account: {session_text}"
     )
 
     if callback.message:
@@ -706,7 +757,7 @@ async def open_downloads_menu_callback_handler(callback: CallbackQuery) -> None:
         except TelegramBadRequest as exc:
             logger.debug("Failed editing text on open downloads: %s", exc)
     await safe_callback_answer(callback)
-    logger.info("Admin user %d opened download category sub-menu.", callback.from_user.id)
+    logger.info("Admin user %d opened download category sub-menu.", user_id)
 
 
 @router.callback_query(F.data.in_(CATEGORY_ACTION_MAP.keys()))
@@ -718,24 +769,35 @@ async def download_category_callback_handler(callback: CallbackQuery, state: FSM
         state: FSM execution context.
     """
     user_id = callback.from_user.id
+    active_session = get_user_active_session(user_id)
+
+    if not active_session:
+        await safe_callback_answer(
+            callback,
+            "⚠️ Please select a Session (Account) first from the menu!",
+            show_alert=True,
+        )
+        return
+
     action = callback.data or ""
     category, display_title = CATEGORY_ACTION_MAP[action]
 
-    dates = get_available_dates_for_category(category)
+    dates = get_available_dates_for_category(category, session_name=active_session)
 
     if not dates:
         await safe_callback_answer(
             callback,
-            "📭 No links found in this category yet. Try extracting some first! 😊",
+            f"📭 No links found for session '{active_session}' in this category yet. Try extracting some first! 😊",
             show_alert=True,
         )
         return
 
     await state.set_state(DownloadState.selecting_date)
-    await state.update_data(category=category, category_title=display_title)
+    await state.update_data(category=category, category_title=display_title, session_name=active_session)
 
     prompt_text = (
         f"📂 <b>Download: {display_title} (Step 1/2)</b>\n\n"
+        f"🟢 Active Session: <code>{active_session}</code>\n"
         f"Available Dates: <b>{len(dates)}</b>\n\n"
         "Select the date folder you wish to browse files from:"
     )
@@ -751,7 +813,7 @@ async def download_category_callback_handler(callback: CallbackQuery, state: FSM
             logger.debug("Failed editing text on download category select: %s", exc)
 
     await safe_callback_answer(callback)
-    logger.info("Admin user %d selected category '%s' for download browsing.", user_id, category)
+    logger.info("Admin user %d selected category '%s' for download browsing on session '%s'.", user_id, category, active_session)
 
 
 @router.callback_query(F.data.startswith("dl_date_"))
@@ -766,28 +828,32 @@ async def download_date_callback_handler(callback: CallbackQuery, state: FSMCont
         await safe_callback_answer(callback)
         return
 
+    user_id = callback.from_user.id
+    active_session = get_user_active_session(user_id)
     selected_date = callback.data[len("dl_date_"):]
     state_data = await state.get_data()
     category = state_data.get("category", "telegram_groups")
     display_title = state_data.get("category_title", "Links")
+    session_name = active_session or state_data.get("session_name", "default")
 
-    files = get_files_for_category_and_date(category, selected_date)
+    files = get_files_for_category_and_date(category, selected_date, session_name=session_name)
     if not files:
         await safe_callback_answer(
             callback,
-            f"📭 No link files found for {selected_date}.",
+            f"📭 No link files found for {selected_date} in session '{session_name}'.",
             show_alert=True,
         )
         return
 
     await state.set_state(DownloadState.selecting_file)
-    await state.update_data(selected_date=selected_date, current_page=1)
+    await state.update_data(selected_date=selected_date, current_page=1, session_name=session_name)
 
     page_size = 10
     total_pages = max(1, (len(files) + page_size - 1) // page_size)
     page_info = f" (Page 1/{total_pages})" if total_pages > 1 else ""
     prompt_text = (
         f"📂 <b>Download: {display_title} (Step 2/2)</b>\n\n"
+        f"🟢 Session: <code>{session_name}</code>\n"
         f"📅 Date: <code>{selected_date}</code>\n"
         f"📄 Available Files: <b>{len(files)}</b>{page_info}\n\n"
         "Click on a file below to download it directly:"
@@ -810,10 +876,11 @@ async def download_date_callback_handler(callback: CallbackQuery, state: FSMCont
 
     await safe_callback_answer(callback)
     logger.info(
-        "Admin user %d selected date '%s' for category '%s' download.",
-        callback.from_user.id,
+        "Admin user %d selected date '%s' for category '%s' download on session '%s'.",
+        user_id,
         selected_date,
         category,
+        session_name,
     )
 
 
@@ -832,6 +899,8 @@ async def download_page_callback_handler(callback: CallbackQuery, state: FSMCont
         await safe_callback_answer(callback)
         return
 
+    user_id = callback.from_user.id
+    active_session = get_user_active_session(user_id)
     raw_payload = callback.data[len("dl_page_"):]
     parts = raw_payload.rsplit("_", 2)
     if len(parts) != 3:
@@ -844,12 +913,13 @@ async def download_page_callback_handler(callback: CallbackQuery, state: FSMCont
     except ValueError:
         page = 1
 
-    files = get_files_for_category_and_date(category, date_str)
+    state_data = await state.get_data()
+    session_name = active_session or state_data.get("session_name", "default")
+    files = get_files_for_category_and_date(category, date_str, session_name=session_name)
     if not files:
         await safe_callback_answer(callback, f"📭 No link files found for {date_str}.", show_alert=True)
         return
 
-    state_data = await state.get_data()
     display_title = state_data.get("category_title")
     if not display_title:
         for cat_slug, title in CATEGORY_ACTION_MAP.values():
@@ -860,12 +930,13 @@ async def download_page_callback_handler(callback: CallbackQuery, state: FSMCont
             display_title = category.replace("_", " ").title()
 
     await state.set_state(DownloadState.selecting_file)
-    await state.update_data(category=category, selected_date=date_str, current_page=page)
+    await state.update_data(category=category, selected_date=date_str, current_page=page, session_name=session_name)
 
     page_size = 10
     total_pages = max(1, (len(files) + page_size - 1) // page_size)
     prompt_text = (
         f"📂 <b>Download: {display_title} (Step 2/2)</b>\n\n"
+        f"🟢 Session: <code>{session_name}</code>\n"
         f"📅 Date: <code>{date_str}</code>\n"
         f"📄 Available Files: <b>{len(files)}</b> (Page {page}/{total_pages})\n\n"
         "Click on a file below to download it directly:"
@@ -888,11 +959,12 @@ async def download_page_callback_handler(callback: CallbackQuery, state: FSMCont
 
     await safe_callback_answer(callback)
     logger.info(
-        "Admin user %d navigated to page %d for category '%s' date '%s'.",
-        callback.from_user.id,
+        "Admin user %d navigated to page %d for category '%s' date '%s' on session '%s'.",
+        user_id,
         page,
         category,
         date_str,
+        session_name,
     )
 
 
@@ -904,15 +976,19 @@ async def download_back_to_dates_callback_handler(callback: CallbackQuery, state
         callback: Incoming callback query.
         state: FSM execution context.
     """
+    user_id = callback.from_user.id
+    active_session = get_user_active_session(user_id)
     state_data = await state.get_data()
     category = state_data.get("category", "telegram_groups")
     display_title = state_data.get("category_title", "Links")
+    session_name = active_session or state_data.get("session_name", "default")
 
-    dates = get_available_dates_for_category(category)
+    dates = get_available_dates_for_category(category, session_name=session_name)
     await state.set_state(DownloadState.selecting_date)
 
     prompt_text = (
         f"📂 <b>Download: {display_title} (Step 1/2)</b>\n\n"
+        f"🟢 Active Session: <code>{session_name}</code>\n"
         f"Available Dates: <b>{len(dates)}</b>\n\n"
         "Select the date folder you wish to browse files from:"
     )
@@ -942,15 +1018,18 @@ async def download_file_callback_handler(callback: CallbackQuery, state: FSMCont
         await safe_callback_answer(callback)
         return
 
+    user_id = callback.from_user.id
+    active_session = get_user_active_session(user_id)
     selected_file = callback.data[len("dl_file_"):]
     state_data = await state.get_data()
     category = state_data.get("category", "telegram_groups")
     selected_date = state_data.get("selected_date")
     display_title = state_data.get("category_title", "Links")
+    session_name = active_session or state_data.get("session_name", "default")
 
     if not selected_date:
-        for d in get_available_dates_for_category(category):
-            if (LINKS_DIR / d / category / selected_file).exists():
+        for d in get_available_dates_for_category(category, session_name=session_name):
+            if (LINKS_DIR / session_name / d / category / selected_file).exists() or (LINKS_DIR / d / category / selected_file).exists():
                 selected_date = d
                 break
 
@@ -958,13 +1037,16 @@ async def download_file_callback_handler(callback: CallbackQuery, state: FSMCont
         await safe_callback_answer(callback, "⚠️ Download session expired. Please restart.", show_alert=True)
         return
 
-    file_path = LINKS_DIR / selected_date / category / selected_file
+    file_path = LINKS_DIR / session_name / selected_date / category / selected_file
+    if not file_path.exists():
+        file_path = LINKS_DIR / selected_date / category / selected_file
+
     if not file_path.exists():
         await safe_callback_answer(callback, f"❌ File '{selected_file}' not found.", show_alert=True)
         return
 
-    caption = f"📄 <b>{display_title}:</b> <code>{selected_date}/{selected_file}</code>"
-    input_file = FSInputFile(path=str(file_path), filename=f"{selected_date}_{category}_{selected_file}")
+    caption = f"📄 <b>{display_title}:</b> <code>{session_name}/{selected_date}/{selected_file}</code>"
+    input_file = FSInputFile(path=str(file_path), filename=f"{session_name}_{selected_date}_{category}_{selected_file}")
 
     if callback.message:
         # a. Save current menu state

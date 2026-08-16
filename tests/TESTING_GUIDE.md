@@ -26,17 +26,18 @@ pytest -q
   pytest tests/test_settings.py -v
   ```
 * **Purpose:**
-  Verifies system constants (`MAX_DAILY_DMS`, `LINKS_PER_FILE`, `TIME_SLEEP_MIN`, `TIME_SLEEP_MAX`), environment variable validation (`API_ID`, `API_HASH`, `BOT_TOKEN`), type casting, error states, dynamic module attribute resolution, and `data/keywords.json` schema integrity.
+  Verifies system constants (`MAX_DAILY_DMS`, `LINKS_PER_FILE`, `TIME_SLEEP_MIN`, `TIME_SLEEP_MAX`), environment variable validation (`API_ID`, `API_HASH`, `BOT_TOKEN`, `ARCHIVE_CHANNEL_ID`), type casting, error states, dynamic module attribute resolution, and `data/keywords.json` schema integrity.
 * **Expected Output:**
   ```text
-  tests/test_settings.py::test_system_constants PASSED                       [ 16%]
-  tests/test_settings.py::test_missing_env_raises_value_error PASSED         [ 33%]
-  tests/test_settings.py::test_invalid_api_id_type PASSED                    [ 50%]
-  tests/test_settings.py::test_valid_env_variables PASSED                    [ 66%]
-  tests/test_settings.py::test_undefined_module_attribute PASSED            [ 83%]
+  tests/test_settings.py::test_system_constants PASSED                       [ 14%]
+  tests/test_settings.py::test_missing_env_raises_value_error PASSED         [ 28%]
+  tests/test_settings.py::test_invalid_api_id_type PASSED                    [ 42%]
+  tests/test_settings.py::test_valid_env_variables PASSED                    [ 57%]
+  tests/test_settings.py::test_archive_channel_id PASSED                     [ 71%]
+  tests/test_settings.py::test_undefined_module_attribute PASSED            [ 85%]
   tests/test_settings.py::test_keywords_json_structure PASSED                [100%]
 
-  ============================== 6 passed in 0.05s ==============================
+  ============================== 7 passed in 0.05s ==============================
   ```
 
 ---
@@ -63,7 +64,7 @@ pytest -q
 
 ---
 
-## 3. File Manager, Nested Structure & Strict Pagination Tests
+## 3. File Manager, Multi-Tenant Isolation & Strict Pagination Tests
 
 * **File:** [`tests/test_file_manager.py`](file:///c:/Users/Lenovo/Desktop/Telegram/tests/test_file_manager.py)
 * **Command:**
@@ -71,16 +72,18 @@ pytest -q
   pytest tests/test_file_manager.py -v
   ```
 * **Purpose:**
-  Verifies input sanitization for links, creation of nested date-stamped category directories (`data/links/YYYY-MM-DD/<category>/part_X.txt`), strict 100-link pagination roll-over (`part_1.txt` -> `part_2.txt` -> `part_3.txt`), chronological and numerical ordering in `get_files_by_category()`, granular category breakdown counting in `get_total_links_count()` returning a dictionary (`whatsapp`, `telegram_groups`, `telegram_folders`, `total`), and non-blocking asynchronous counting via `get_total_links_count_async()`.
+  Verifies input sanitization for links, creation of nested date-stamped category directories under dynamic session folders (`data/links/<session_name>/YYYY-MM-DD/<category>/part_X.txt`), strict 100-link pagination roll-over (`part_1.txt` -> `part_2.txt` -> `part_3.txt`), chronological and numerical ordering in `get_files_by_category()` scoped per session, granular category breakdown counting in `get_total_links_count()` returning a dictionary (`whatsapp`, `telegram_groups`, `telegram_folders`, `total`), non-blocking asynchronous counting via `get_total_links_count_async()`, date discovery via `get_available_dates_for_category()`, and part file discovery via `get_files_for_category_and_date()`.
 * **Expected Output:**
   ```text
-  tests/test_file_manager.py::test_save_link_empty_validation PASSED                   [ 20%]
-  tests/test_file_manager.py::test_save_link_nested_directory_structure PASSED         [ 40%]
-  tests/test_file_manager.py::test_save_link_strict_100_pagination PASSED              [ 60%]
-  tests/test_file_manager.py::test_get_files_by_category_ordering PASSED               [ 80%]
-  tests/test_file_manager.py::test_get_all_link_files_and_total_count PASSED           [100%]
+  tests/test_file_manager.py::test_save_link_empty_validation PASSED                   [ 14%]
+  tests/test_file_manager.py::test_save_link_nested_directory_structure PASSED         [ 28%]
+  tests/test_file_manager.py::test_save_link_strict_100_pagination PASSED              [ 42%]
+  tests/test_file_manager.py::test_get_files_by_category_ordering PASSED               [ 57%]
+  tests/test_file_manager.py::test_get_all_link_files_and_total_count PASSED           [ 71%]
+  tests/test_file_manager.py::test_get_available_dates_for_category PASSED            [ 85%]
+  tests/test_file_manager.py::test_get_files_for_category_and_date PASSED              [100%]
 
-  ============================== 5 passed in 0.05s ==============================
+  ============================== 7 passed in 0.06s ==============================
   ```
 
 ---
@@ -96,14 +99,14 @@ pytest -q
   Verifies regex extraction for standard Telegram invite and channel links (with strict exclusion of `addlist`), shareable folder link extraction (`t.me/addlist/...`), WhatsApp group invite extraction, and fast structural regular expression validation of WhatsApp invite links with zero network requests.
 * **Expected Output:**
   ```text
-  tests/test_validators.py::test_extract_telegram_links_standard PASSED              [ 14%]
-  tests/test_validators.py::test_extract_telegram_links_ignores_folder_addlists PASSED [ 28%]
-  tests/test_validators.py::test_extract_telegram_links_empty_and_deduplication PASSED [ 42%]
-  tests/test_validators.py::test_extract_folder_links_standard PASSED                [ 57%]
-  tests/test_validators.py::test_extract_folder_links_ignores_standard_invites PASSED [ 71%]
-  tests/test_validators.py::test_extract_whatsapp_links_standard PASSED              [ 85%]
-  tests/test_validators.py::test_extract_whatsapp_links_empty_and_punctuation PASSED [ 88%]
-  tests/test_validators.py::test_validate_whatsapp_link_valid PASSED                 [ 94%]
+  tests/test_validators.py::test_extract_telegram_links_standard PASSED              [ 11%]
+  tests/test_validators.py::test_extract_telegram_links_ignores_folder_addlists PASSED [ 22%]
+  tests/test_validators.py::test_extract_telegram_links_empty_and_deduplication PASSED [ 33%]
+  tests/test_validators.py::test_extract_folder_links_standard PASSED                [ 44%]
+  tests/test_validators.py::test_extract_folder_links_ignores_standard_invites PASSED [ 55%]
+  tests/test_validators.py::test_extract_whatsapp_links_standard PASSED              [ 66%]
+  tests/test_validators.py::test_extract_whatsapp_links_empty_and_punctuation PASSED [ 77%]
+  tests/test_validators.py::test_validate_whatsapp_link_valid PASSED                 [ 88%]
   tests/test_validators.py::test_validate_whatsapp_link_invalid PASSED               [100%]
 
   ============================== 9 passed in 0.05s ==============================
@@ -172,64 +175,74 @@ pytest -q
   pytest tests/test_bot_ui.py -v
   ```
 * **Purpose:**
-  Verifies Aiogram 3.x Single Message UI dynamic inline keyboard generation (`get_main_menu` (1, 1, 1, 2, 1) layout toggle states for Start/Stop Auto-Reply, Start/Stop Extraction, Auto-Join Groups `menu_auto_join`, and Sessions Manager `menu_session_mgr`), Sessions Manager sub-menu (`get_session_mgr_menu` for Switch Active, Add New, Rename, Delete, Back), granular extraction target sub-menu (`get_extraction_target_menu`), granular download FSM sub-menus (`get_download_menu`, `get_download_dates_keyboard`, `get_download_files_keyboard`), dynamic `edit_reply_markup` refresh upon task toggles, cancellation via `get_cancel_keyboard` and `cancel_fsm`, safe handling of expired callback queries (`TelegramBadRequest`) via `safe_callback_answer`, explicit active session logical validation with center-screen modal pop-up alerts (`show_alert=True`) before starting workers or extraction, strict concurrency safety locks (`is_userbot_running`) blocking simultaneous Joiner or Extractor execution on the same account, non-blocking asynchronous system statistics dashboard (`menu_system_stats`), back navigation (`get_back_keyboard`, `menu_back`), session checkmark indicators (`✅`), session rename FSM flow (`SessionState.waiting_for_new_session_name`), session deletion with automatic background worker termination, Push-Down UX for link file downloads (delivering document, deleting displaced menu, and resending fresh menu at chat bottom), immediate user message deletion (`message.delete()`) during FSM text input, and in-place editing of prompt messages.
+  Verifies Aiogram 3.x Single Message UI dynamic inline keyboard generation (`get_main_menu` (1, 1, 1, 2, 1) layout toggle states for Start/Stop Auto-Reply, Start/Stop Extraction, Auto-Join Groups `menu_auto_join`, and Sessions Manager `menu_session_mgr`), Sessions Manager sub-menu (`get_session_mgr_menu` for Switch Active, Add New, Rename, Delete, Back), granular extraction target sub-menu (`get_extraction_target_menu`), granular download FSM sub-menus (`get_download_menu`, `get_download_dates_keyboard`, `get_download_files_keyboard`), 10-item-per-page file list UI pagination with interactive `[ ⬅️ Prev ]` and `[ Next ➡️ ]` navigation buttons (`dl_page_{category}_{date}_{page}`), dynamic `edit_reply_markup` refresh upon task toggles, cancellation via `get_cancel_keyboard` and `cancel_fsm`, safe handling of expired callback queries (`TelegramBadRequest`) via `safe_callback_answer`, explicit active session logical validation with center-screen modal pop-up alerts (`show_alert=True`) before starting workers, extraction, or download browsing, multi-tenant session isolation ensuring Downloads UI only displays and delivers files belonging to the active session (`data/links/{active_session}/...`), strict concurrency safety locks (`is_userbot_running`) blocking simultaneous Joiner or Extractor execution on the same account, non-blocking asynchronous system statistics dashboard (`menu_system_stats`) displaying link counts isolated to the active session, back navigation (`get_back_keyboard`, `menu_back`), session checkmark indicators (`✅`), session rename FSM flow (`SessionState.waiting_for_new_session_name`), session deletion with automatic background worker termination, Push-Down UX for link file downloads (delivering document, deleting displaced menu, and resending fresh menu at chat bottom), immediate user message deletion (`message.delete()`) during FSM text input, in-place editing of prompt messages, and centralized Main Menu dispatching via `send_main_menu` with dynamic session resolution, worker status inquiries, and exception safety.
 * **Expected Output:**
   ```text
-  tests/test_bot_ui.py::test_get_main_menu_all_idle PASSED                                    [  2%]
-  tests/test_bot_ui.py::test_get_main_menu_userbot_running PASSED                            [  4%]
-  tests/test_bot_ui.py::test_get_main_menu_extractor_running PASSED                          [  6%]
-  tests/test_bot_ui.py::test_get_main_menu_both_running PASSED                               [  8%]
-  tests/test_bot_ui.py::test_get_extraction_target_menu_structure PASSED                      [  9%]
-  tests/test_bot_ui.py::test_get_download_menu_structure PASSED                               [ 11%]
-  tests/test_bot_ui.py::test_get_download_dates_keyboard_structure PASSED                     [ 13%]
-  tests/test_bot_ui.py::test_get_download_files_keyboard_structure PASSED                     [ 15%]
-  tests/test_bot_ui.py::test_get_back_keyboard PASSED                                         [ 17%]
-  tests/test_bot_ui.py::test_get_cancel_keyboard PASSED                                       [ 19%]
-  tests/test_bot_ui.py::test_get_sessions_keyboard_with_active_indicator PASSED              [ 21%]
-  tests/test_bot_ui.py::test_get_sessions_keyboard_empty_list PASSED                          [ 23%]
-  tests/test_bot_ui.py::test_get_session_mgr_menu_structure PASSED                            [ 25%]
-  tests/test_bot_ui.py::test_get_rename_sessions_keyboard_structure PASSED                   [ 26%]
-  tests/test_bot_ui.py::test_get_delete_sessions_keyboard_structure PASSED                   [ 28%]
-  tests/test_bot_ui.py::test_safe_callback_answer_handles_telegram_bad_request PASSED         [ 30%]
-  tests/test_bot_ui.py::test_start_command_handler PASSED                                     [ 32%]
-  tests/test_bot_ui.py::test_start_reply_callback_handler_triggers_process_manager PASSED     [ 34%]
-  tests/test_bot_ui.py::test_start_reply_callback_handler_no_session_validation PASSED        [ 36%]
-  tests/test_bot_ui.py::test_start_reply_callback_handler_already_running_concurrency PASSED  [ 38%]
-  tests/test_bot_ui.py::test_stop_reply_callback_handler_triggers_process_manager PASSED      [ 40%]
-  tests/test_bot_ui.py::test_stop_reply_callback_handler_already_stopped PASSED               [ 42%]
-  tests/test_bot_ui.py::test_extract_links_callback_handler_shows_target_menu PASSED          [ 43%]
-  tests/test_bot_ui.py::test_extract_links_callback_handler_no_session_validation PASSED      [ 45%]
-  tests/test_bot_ui.py::test_extract_links_callback_handler_userbot_running_blocks_extraction PASSED [ 47%]
-  tests/test_bot_ui.py::test_extract_target_callback_handler_transitions_to_date_prompt PASSED [ 49%]
-  tests/test_bot_ui.py::test_extract_target_callback_handler_no_session_validation PASSED    [ 51%]
-  tests/test_bot_ui.py::test_stop_extraction_callback_handler PASSED                          [ 53%]
-  tests/test_bot_ui.py::test_stop_extraction_callback_handler_already_stopped PASSED          [ 55%]
-  tests/test_bot_ui.py::test_cancel_fsm_callback_handler PASSED                               [ 57%]
-  tests/test_bot_ui.py::test_process_date_range_extraction_handler_invalid_format PASSED      [ 58%]
-  tests/test_bot_ui.py::test_process_date_range_extraction_handler_userbot_running_blocks_extraction PASSED [ 60%]
-  tests/test_bot_ui.py::test_process_date_range_extraction_handler_success PASSED             [ 62%]
-  tests/test_bot_ui.py::test_system_stats_callback_handler PASSED                             [ 64%]
-  tests/test_bot_ui.py::test_open_downloads_menu_callback_handler PASSED                      [ 66%]
-  tests/test_bot_ui.py::test_download_category_callback_handler_empty_soft_alert PASSED        [ 68%]
-  tests/test_bot_ui.py::test_download_category_callback_handler_renders_dates PASSED         [ 70%]
-  tests/test_bot_ui.py::test_download_date_callback_handler_renders_files PASSED             [ 72%]
-  tests/test_bot_ui.py::test_download_back_to_dates_callback_handler PASSED                  [ 74%]
-  tests/test_bot_ui.py::test_download_file_callback_handler_delivers_single_file PASSED      [ 75%]
-  tests/test_bot_ui.py::test_switch_session_callback_handler PASSED                           [ 77%]
-  tests/test_bot_ui.py::test_select_session_callback_handler PASSED                           [ 79%]
-  tests/test_bot_ui.py::test_back_to_main_menu_callback_handler PASSED                        [ 81%]
-  tests/test_bot_ui.py::test_session_mgr_callback_handler PASSED                             [ 83%]
-  tests/test_bot_ui.py::test_rename_session_list_callback_handler_empty PASSED                [ 85%]
-  tests/test_bot_ui.py::test_rename_session_list_callback_handler_has_sessions PASSED         [ 87%]
-  tests/test_bot_ui.py::test_rename_sess_select_callback_handler PASSED                       [ 89%]
-  tests/test_bot_ui.py::test_process_new_session_name_handler_invalid_format PASSED          [ 91%]
-  tests/test_bot_ui.py::test_process_new_session_name_handler_duplicate PASSED               [ 92%]
-  tests/test_bot_ui.py::test_process_new_session_name_handler_success PASSED                 [ 94%]
-  tests/test_bot_ui.py::test_delete_session_list_callback_handler_empty PASSED                [ 96%]
-  tests/test_bot_ui.py::test_delete_session_list_callback_handler_has_sessions PASSED         [ 98%]
-  tests/test_bot_ui.py::test_del_sess_select_callback_handler_success PASSED                 [100%]
-
-  ============================== 53 passed in 0.30s ==============================
+  tests/test_bot_ui.py::test_get_main_menu_all_idle PASSED                                    [  1%]
+  tests/test_bot_ui.py::test_get_main_menu_userbot_running PASSED                            [  3%]
+  tests/test_bot_ui.py::test_get_main_menu_extractor_running PASSED                          [  4%]
+  tests/test_bot_ui.py::test_get_main_menu_both_running PASSED                               [  6%]
+  tests/test_bot_ui.py::test_get_extraction_target_menu_structure PASSED                      [  7%]
+  tests/test_bot_ui.py::test_get_download_menu_structure PASSED                               [  9%]
+  tests/test_bot_ui.py::test_get_download_dates_keyboard_structure PASSED                     [ 10%]
+  tests/test_bot_ui.py::test_get_download_files_keyboard_structure PASSED                     [ 12%]
+  tests/test_bot_ui.py::test_get_download_files_keyboard_pagination PASSED                    [ 14%]
+  tests/test_bot_ui.py::test_get_back_keyboard PASSED                                         [ 15%]
+  tests/test_bot_ui.py::test_get_cancel_keyboard PASSED                                       [ 17%]
+  tests/test_bot_ui.py::test_get_sessions_keyboard_with_active_indicator PASSED              [ 18%]
+  tests/test_bot_ui.py::test_get_sessions_keyboard_empty_list PASSED                          [ 20%]
+  tests/test_bot_ui.py::test_get_session_mgr_menu_structure PASSED                            [ 21%]
+  tests/test_bot_ui.py::test_get_rename_sessions_keyboard_structure PASSED                   [ 23%]
+  tests/test_bot_ui.py::test_get_delete_sessions_keyboard_structure PASSED                   [ 25%]
+  tests/test_bot_ui.py::test_safe_callback_answer_handles_telegram_bad_request PASSED         [ 26%]
+  tests/test_bot_ui.py::test_start_command_handler PASSED                                     [ 28%]
+  tests/test_bot_ui.py::test_start_reply_callback_handler_triggers_process_manager PASSED     [ 29%]
+  tests/test_bot_ui.py::test_start_reply_callback_handler_no_session_validation PASSED        [ 31%]
+  tests/test_bot_ui.py::test_start_reply_callback_handler_already_running_concurrency PASSED  [ 32%]
+  tests/test_bot_ui.py::test_stop_reply_callback_handler_triggers_process_manager PASSED      [ 34%]
+  tests/test_bot_ui.py::test_stop_reply_callback_handler_already_stopped PASSED               [ 35%]
+  tests/test_bot_ui.py::test_extract_links_callback_handler_shows_target_menu PASSED          [ 37%]
+  tests/test_bot_ui.py::test_extract_links_callback_handler_no_session_validation PASSED      [ 39%]
+  tests/test_bot_ui.py::test_extract_links_callback_handler_userbot_running_blocks_extraction PASSED [ 40%]
+  tests/test_bot_ui.py::test_extract_target_callback_handler_transitions_to_date_prompt PASSED [ 42%]
+  tests/test_bot_ui.py::test_extract_target_callback_handler_no_session_validation PASSED    [ 43%]
+  tests/test_bot_ui.py::test_stop_extraction_callback_handler PASSED                          [ 45%]
+  tests/test_bot_ui.py::test_stop_extraction_callback_handler_already_stopped PASSED          [ 46%]
+  tests/test_bot_ui.py::test_cancel_fsm_callback_handler PASSED                               [ 48%]
+  tests/test_bot_ui.py::test_process_date_range_extraction_handler_invalid_format PASSED      [ 50%]
+  tests/test_bot_ui.py::test_process_date_range_extraction_handler_userbot_running_blocks_extraction PASSED [ 51%]
+  tests/test_bot_ui.py::test_process_date_range_extraction_handler_success PASSED             [ 53%]
+  tests/test_bot_ui.py::test_system_stats_callback_handler PASSED                             [ 54%]
+  tests/test_bot_ui.py::test_open_downloads_menu_callback_handler PASSED                      [ 56%]
+  tests/test_bot_ui.py::test_download_category_callback_handler_empty_soft_alert PASSED        [ 57%]
+  tests/test_bot_ui.py::test_download_category_callback_handler_renders_dates PASSED         [ 59%]
+  tests/test_bot_ui.py::test_download_date_callback_handler_renders_files PASSED             [ 60%]
+  tests/test_bot_ui.py::test_download_back_to_dates_callback_handler PASSED                  [ 62%]
+  tests/test_bot_ui.py::test_download_file_callback_handler_delivers_single_file PASSED      [ 64%]
+  tests/test_bot_ui.py::test_switch_session_callback_handler PASSED                           [ 65%]
+  tests/test_bot_ui.py::test_select_session_callback_handler PASSED                           [ 67%]
+  tests/test_bot_ui.py::test_back_to_main_menu_callback_handler PASSED                        [ 68%]
+  tests/test_bot_ui.py::test_session_mgr_callback_handler PASSED                             [ 70%]
+  tests/test_bot_ui.py::test_rename_session_list_callback_handler_empty PASSED                [ 71%]
+  tests/test_bot_ui.py::test_rename_session_list_callback_handler_has_sessions PASSED         [ 73%]
+  tests/test_bot_ui.py::test_rename_sess_select_callback_handler PASSED                       [ 75%]
+  tests/test_bot_ui.py::test_process_new_session_name_handler_invalid_format PASSED          [ 76%]
+  tests/test_bot_ui.py::test_process_new_session_name_handler_duplicate PASSED               [ 78%]
+  tests/test_bot_ui.py::test_process_new_session_name_handler_success PASSED                 [ 79%]
+  tests/test_bot_ui.py::test_delete_session_list_callback_handler_empty PASSED                [ 81%]
+  tests/test_bot_ui.py::test_delete_session_list_callback_handler_has_sessions PASSED         [ 82%]
+  tests/test_bot_ui.py::test_del_sess_select_callback_handler_success PASSED                 [ 84%]
+  tests/test_bot_ui.py::test_system_stats_callback_handler_active_session PASSED              [ 85%]
+  tests/test_bot_ui.py::test_download_category_callback_handler_no_active_session PASSED     [ 87%]
+  tests/test_bot_ui.py::test_download_category_callback_handler_success PASSED               [ 89%]
+  tests/test_download_date_callback_handler_success PASSED                   [ 90%]
+  tests/test_bot_ui.py::test_download_page_callback_handler_success PASSED                   [ 92%]
+  tests/test_bot_ui.py::test_download_file_callback_handler_sends_isolated_file PASSED       [ 93%]
+  tests/test_bot_ui.py::test_send_main_menu_dispatches_with_resolved_session PASSED          [ 95%]
+  tests/test_bot_ui.py::test_send_main_menu_explicit_session_overrides_lookup PASSED          [ 96%]
+  tests/test_bot_ui.py::test_send_main_menu_handles_exception_gracefully PASSED              [ 98%]
+  tests/test_bot_ui.py::test_send_main_menu_invalid_bot_or_chat_id PASSED                    [100%]
+  ============================== 64 passed in 0.38s ==============================
   ```
 
 ---
@@ -293,17 +306,20 @@ pytest -q
   pytest tests/test_extractor.py -v
   ```
 * **Purpose:**
-  Verifies asynchronous global group scanning across all user dialogs, exclusion of private chats, exact date bounds (`start_date`, `end_date`), dual extraction and segregation of standard Telegram group links vs folder (`addlist`) links into separate category directories (`telegram_groups` vs `telegram_folders`), granular target filtering (`target_type="whatsapp"`, `"tg_groups"`, `"tg_folders"`, `"all"`), live progress message updates via Aiogram, categorized persistence for Telegram, folder, and WhatsApp formats, and verifies graceful error recovery on Telegram access restrictions (`ChatAdminRequired`).
+  Verifies asynchronous global group scanning across all user dialogs, exclusion of private chats, exact date bounds (`start_date`, `end_date`), dual extraction and segregation of standard Telegram group links vs folder (`addlist`) links into separate category directories (`telegram_groups` vs `telegram_folders`), multi-tenant session isolation ensuring all extracted files are saved under `data/links/{session_name}/{date}/{category}/part_X.txt`, granular target filtering (`target_type="whatsapp"`, `"tg_groups"`, `"tg_folders"`, `"all"`), live progress message updates via Aiogram, automated persistent cloud archiving via `bot.send_document()` to `ARCHIVE_CHANNEL_ID` with detailed HTML caption on successful extraction, categorized persistence for Telegram, folder, and WhatsApp formats, graceful error recovery on Telegram access restrictions (`ChatAdminRequired`), and guaranteed **UI Auto-Refresh** on natural completion, manual cancellation (`asyncio.CancelledError`), or fatal errors resetting `ProcessManager.active_extractions` and dispatching a fresh Main Menu dashboard.
 * **Expected Output:**
   ```text
-  tests/test_extractor.py::test_run_global_extraction_task_filters_groups_and_dates PASSED [ 16%]
-  tests/test_extractor.py::test_run_global_extraction_task_target_filtering PASSED         [ 33%]
-  tests/test_extractor.py::test_run_extraction_task_catches_group_level_errors PASSED      [ 50%]
-  tests/test_extractor.py::test_extract_and_segregate_telegram_links PASSED                [ 66%]
-  tests/test_extractor.py::test_extract_and_segregate_telegram_links_empty_or_none PASSED  [ 83%]
-  tests/test_extractor.py::test_run_extraction_task_mixed_links_segregated_saving PASSED   [100%]
+  tests/test_extractor.py::test_run_global_extraction_task_filters_groups_and_dates PASSED [ 11%]
+  tests/test_extractor.py::test_run_global_extraction_task_target_filtering PASSED         [ 22%]
+  tests/test_extractor.py::test_run_extraction_task_catches_group_level_errors PASSED      [ 33%]
+  tests/test_extractor.py::test_extract_and_segregate_telegram_links PASSED                [ 44%]
+  tests/test_extractor.py::test_extract_and_segregate_telegram_links_empty_or_none PASSED  [ 55%]
+  tests/test_extractor.py::test_run_extraction_task_mixed_links_segregated_saving PASSED   [ 66%]
+  tests/test_extractor.py::test_run_extraction_task_cancelled_refreshes_ui PASSED          [ 77%]
+  tests/test_extractor.py::test_run_extraction_task_fatal_error_refreshes_ui PASSED        [ 88%]
+  tests/test_extractor.py::test_run_extraction_task_archives_files_to_channel PASSED       [100%]
 
-  ============================== 6 passed in 0.08s ==============================
+  ============================== 9 passed in 0.11s ==============================
   ```
 
 ---
@@ -347,25 +363,27 @@ pytest -q
   - Safe FSM workflow cancellation via `cancel_fsm` callback with immediate MTProto client cleanup and return to the main dashboard.
 * **Expected Output:**
   ```text
-  tests/test_login_handlers.py::test_cleanup_user_login_client_connected PASSED              [  6%]
-  tests/test_login_handlers.py::test_cleanup_user_login_client_disconnected PASSED           [ 12%]
-  tests/test_login_handlers.py::test_cleanup_user_login_client_handles_exception PASSED      [ 18%]
-  tests/test_login_handlers.py::test_start_add_session_handler PASSED                         [ 25%]
-  tests/test_login_handlers.py::test_process_session_name_valid PASSED                        [ 31%]
-  tests/test_login_handlers.py::test_process_session_name_invalid_characters PASSED         [ 37%]
-  tests/test_login_handlers.py::test_process_session_name_duplicate_rejected PASSED          [ 43%]
-  tests/test_login_handlers.py::test_process_phone_number_success PASSED                     [ 50%]
-  tests/test_login_handlers.py::test_process_phone_number_invalid_format PASSED              [ 56%]
-  tests/test_login_handlers.py::test_process_phone_number_flood_wait_handled PASSED          [ 62%]
-  tests/test_login_handlers.py::test_process_phone_number_unoccupied_phone PASSED          [ 68%]
-  tests/test_login_handlers.py::test_process_otp_code_success_no_2fa PASSED                  [ 75%]
-  tests/test_login_handlers.py::test_process_otp_code_requires_2fa PASSED                     [ 81%]
-  tests/test_login_handlers.py::test_process_otp_code_invalid_code_error PASSED             [ 87%]
-  tests/test_login_handlers.py::test_process_2fa_password_success PASSED                     [ 93%]
-  tests/test_login_handlers.py::test_process_2fa_password_invalid PASSED                     [100%]
+  tests/test_login_handlers.py::test_cleanup_user_login_client_connected PASSED              [  5%]
+  tests/test_login_handlers.py::test_cleanup_user_login_client_disconnected PASSED           [ 10%]
+  tests/test_login_handlers.py::test_cleanup_user_login_client_handles_exception PASSED      [ 15%]
+  tests/test_login_handlers.py::test_start_add_session_handler PASSED                         [ 21%]
+  tests/test_login_handlers.py::test_process_session_name_valid PASSED                        [ 26%]
+  tests/test_login_handlers.py::test_process_session_name_invalid_characters PASSED         [ 31%]
+  tests/test_login_handlers.py::test_process_session_name_duplicate_rejected PASSED          [ 36%]
+  tests/test_login_handlers.py::test_process_phone_number_success PASSED                     [ 42%]
+  tests/test_login_handlers.py::test_process_phone_number_invalid_format PASSED              [ 47%]
+  tests/test_login_handlers.py::test_process_phone_number_flood_wait_handled PASSED          [ 52%]
+  tests/test_login_handlers.py::test_process_phone_number_unoccupied_phone PASSED          [ 57%]
+  tests/test_login_handlers.py::test_process_phone_number_phone_number_invalid_error PASSED   [ 63%]
+  tests/test_login_handlers.py::test_process_otp_code_invalid_format PASSED                   [ 68%]
+  tests/test_login_handlers.py::test_process_otp_code_success_no_2fa PASSED                  [ 73%]
+  tests/test_login_handlers.py::test_process_otp_code_requires_2fa PASSED                     [ 78%]
+  tests/test_login_handlers.py::test_process_otp_code_invalid_code_error PASSED             [ 84%]
+  tests/test_login_handlers.py::test_process_2fa_password_success PASSED                     [ 89%]
+  tests/test_login_handlers.py::test_process_2fa_password_invalid PASSED                     [ 94%]
   tests/test_login_handlers.py::test_cancel_fsm_cleans_up_login_client PASSED                [100%]
 
-  ============================== 17 passed in 0.12s ==============================
+  ============================== 19 passed in 0.14s ==============================
   ```
 
 ---
@@ -406,27 +424,6 @@ pytest -q
 
 ---
 
-## 13. System Configuration & Environment Variables Tests
-
-* **File:** [`tests/test_settings.py`](file:///c:/Users/Lenovo/Desktop/Telegram/tests/test_settings.py)
-* **Command:**
-  ```bash
-  pytest tests/test_settings.py -v
-  ```
-* **Purpose:**
-  Verifies that critical environment variables (`API_ID`, `API_HASH`, `BOT_TOKEN`, `ADMIN_USER_ID`) and operational limits (`MAX_DAILY_DMS`, anti-spam timers) are loaded accurately with type safety and fallback defaults.
-* **Expected Output:**
-  ```text
-  tests/test_settings.py::test_mandatory_settings_loaded PASSED                            [ 25%]
-  tests/test_settings.py::test_missing_env_vars_fallbacks PASSED                           [ 50%]
-  tests/test_settings.py::test_numeric_settings_types PASSED                               [ 75%]
-  tests/test_settings.py::test_directory_paths_instantiated PASSED                          [ 100%]
-
-  ============================== 4 passed in 0.04s ==============================
-  ```
-
----
-
 ## 14. Auto-Joiner Core Engine Tests
 
 * **File:** [`tests/test_joiner.py`](file:///c:/Users/Lenovo/Desktop/Telegram/tests/test_joiner.py)
@@ -445,24 +442,29 @@ pytest -q
   - Verbose error logging: logging `logger.warning` for ALL join failures with the exact Telegram API error message.
   - Kill switch handling: catching `asyncio.CancelledError`, stopping client, appending `🛑 ABORTED BY ADMIN`, and updating UI.
   - Live progress reporting every 3 processed links and final summary reporting at completion.
+  - Guaranteed **UI Auto-Refresh**: updating `ProcessManager.active_joiners` and immediately dispatching a fresh Main Menu dashboard upon natural completion, manual abort, empty target link files, or unexpected runtime exceptions.
   - Pyrogram MTProto client lifecycle management (`start()`, `stop()`).
 * **Expected Output:**
   ```text
-  tests/test_joiner.py::test_extract_links_from_file_valid PASSED                              [  8%]
-  tests/test_joiner.py::test_extract_links_from_file_non_existent PASSED                       [ 15%]
-  tests/test_joiner.py::test_sanitize_chat_target_private_invite_links PASSED                  [ 23%]
-  tests/test_joiner.py::test_sanitize_chat_target_public_links_and_handles PASSED             [ 31%]
-  tests/test_joiner.py::test_run_auto_join_task_empty_links PASSED                            [ 38%]
-  tests/test_joiner.py::test_run_auto_join_task_successful_joins PASSED                       [ 46%]
-  tests/test_joiner.py::test_run_auto_join_task_user_already_participant PASSED               [ 54%]
-  tests/test_joiner.py::test_run_auto_join_task_flood_wait_retries_and_succeeds PASSED        [ 62%]
-  tests/test_joiner.py::test_run_auto_join_task_expired_and_invalid_links PASSED               [ 69%]
-  tests/test_joiner.py::test_run_auto_join_task_failure_logs_verbose_warning PASSED          [ 77%]
-  tests/test_joiner.py::test_run_auto_join_task_unexpected_error_logs_warning PASSED          [ 85%]
-  tests/test_joiner.py::test_run_auto_join_task_invite_request_sent PASSED                    [ 92%]
-  tests/test_joiner.py::test_run_auto_join_task_admin_cancellation PASSED                     [100%]
+  tests/test_joiner.py::test_extract_links_from_file_valid PASSED                              [  5%]
+  tests/test_joiner.py::test_extract_links_from_file_non_existent PASSED                       [ 11%]
+  tests/test_joiner.py::test_sanitize_chat_target_private_invite_links PASSED                  [ 17%]
+  tests/test_joiner.py::test_sanitize_chat_target_public_links_and_handles PASSED             [ 23%]
+  tests/test_joiner.py::test_run_auto_join_task_empty_links PASSED                            [ 29%]
+  tests/test_joiner.py::test_run_auto_join_task_successful_joins PASSED                       [ 35%]
+  tests/test_joiner.py::test_run_auto_join_task_user_already_participant PASSED               [ 41%]
+  tests/test_joiner.py::test_run_auto_join_task_flood_wait_retries_and_succeeds PASSED        [ 47%]
+  tests/test_joiner.py::test_run_auto_join_task_expired_and_invalid_links PASSED               [ 52%]
+  tests/test_joiner.py::test_run_auto_join_task_failure_logs_verbose_warning PASSED          [ 58%]
+  tests/test_joiner.py::test_run_auto_join_task_unexpected_error_logs_warning PASSED          [ 64%]
+  tests/test_joiner.py::test_run_auto_join_task_invite_request_sent PASSED                    [ 70%]
+  tests/test_joiner.py::test_run_auto_join_task_admin_cancellation PASSED                     [ 76%]
+  tests/test_joiner.py::test_run_auto_join_task_completion_refreshes_main_menu PASSED        [ 82%]
+  tests/test_joiner.py::test_run_auto_join_task_cancellation_refreshes_main_menu PASSED      [ 88%]
+  tests/test_joiner.py::test_run_auto_join_task_empty_links_refreshes_main_menu PASSED        [ 94%]
+  tests/test_joiner.py::test_run_auto_join_task_error_refreshes_main_menu PASSED              [100%]
 
-  ============================== 13 passed in 0.12s ==============================
+  ============================== 17 passed in 0.15s ==============================
   ```
 
 ---
@@ -476,10 +478,10 @@ pytest -q
   ```
 * **Purpose:**
   Verifies the multi-step Aiogram 3.x FSM Auto-Joiner workflow (`bot_ui/joiner_handlers.py`):
-  - Step 1: Active session validation with modal alert (`show_alert=True`) and discovery of valid date folders in `data/links/` (`get_available_group_dates`).
-  - Step 2: Date selection (`jdate_{date}`), FSM state transition to `JoinerState.selecting_file`, and retrieval of available `.txt` part files (`get_group_files_for_date`).
+  - Step 1: Active session validation with modal alert (`show_alert=True`) and discovery of valid date folders strictly within the active session directory `data/links/{active_session}/` (`get_available_group_dates`).
+  - Step 2: Date selection (`jdate_{date}`), FSM state transition to `JoinerState.selecting_file`, and retrieval of available `.txt` part files from `data/links/{active_session}/{date}/telegram_groups/` (`get_group_files_for_date`).
   - Step 3: Concurrency safety check ensuring Auto-Joiner cannot start if Auto-Reply userbot is currently active on the same session (`is_userbot_running`), returning modal alert (`show_alert=True`).
-  - Step 3 execution: Granular file selection (`jfile_{filename}`), FSM state clearing, in-place prompt message editing with `get_joiner_progress_keyboard`, task registration in `active_joiners`, and launching of the background `run_auto_join_task` for the chosen file.
+  - Step 3 execution: Granular file selection (`jfile_{filename}`), FSM state clearing, in-place prompt message editing with `get_joiner_progress_keyboard`, task registration in `active_joiners`, and launching of the background `run_auto_join_task` for the chosen file strictly verified under `data/links/{active_session}/...`.
   - Kill Switch UX: `[ ⏹️ Stop Auto-Joiner ]` button (`stop_joiner_{session_name}`) triggering `stop_joiner_callback_handler` and `stop_joiner_task(session_name)`.
   - Exception handling for missing active sessions, empty storage directories, and deleted files with modal pop-up alerts.
 * **Expected Output:**
@@ -503,9 +505,41 @@ pytest -q
 
 ---
 
+## 16. System-Wide UI Auto-Refresh Verification Suite
+
+* **Components:** [`bot_ui/handlers.py`](file:///c:/Users/Lenovo/Desktop/Telegram/bot_ui/handlers.py), [`userbot/extractor.py`](file:///c:/Users/Lenovo/Desktop/Telegram/userbot/extractor.py), [`userbot/joiner.py`](file:///c:/Users/Lenovo/Desktop/Telegram/userbot/joiner.py), [`core/process_manager.py`](file:///c:/Users/Lenovo/Desktop/Telegram/core/process_manager.py)
+* **Command:**
+  ```bash
+  pytest tests/test_bot_ui.py tests/test_extractor.py tests/test_joiner.py -k "refreshes or send_main_menu" -v
+  ```
+* **Purpose:**
+  Verifies the unified system-wide UX standard across all background processes:
+  - Centralized Main Menu Dispatcher (`send_main_menu`): dynamically inspects active user state, checks live task statuses (`is_userbot_running`, `is_extraction_running`), formats HTML dashboard guidance, and dispatches fresh menu with active toggle buttons.
+  - Link Extractor Auto-Refresh: ensures natural completion, manual cancellation (`asyncio.CancelledError`), and fatal error recovery explicitly clean `active_extractions` and dispatch fresh Main Menu.
+  - Auto-Joiner Auto-Refresh: ensures natural completion, manual abort, empty targets abort, and fatal exceptions explicitly clean `active_joiners` and dispatch fresh Main Menu.
+  - Concurrency synchronization: verifies `ProcessManager` status inquiry functions immediately reflect `is_running = False` upon task termination.
+* **Expected Output:**
+  ```text
+  tests/test_bot_ui.py::test_send_main_menu_dispatches_with_resolved_session PASSED          [ 12%]
+  tests/test_bot_ui.py::test_send_main_menu_explicit_session_overrides_lookup PASSED          [ 25%]
+  tests/test_bot_ui.py::test_send_main_menu_handles_exception_gracefully PASSED              [ 37%]
+  tests/test_bot_ui.py::test_send_main_menu_invalid_bot_or_chat_id PASSED                    [ 50%]
+  tests/test_extractor.py::test_run_extraction_task_cancelled_refreshes_ui PASSED          [ 62%]
+  tests/test_extractor.py::test_run_extraction_task_fatal_error_refreshes_ui PASSED        [ 75%]
+  tests/test_joiner.py::test_run_auto_join_task_completion_refreshes_main_menu PASSED        [ 81%]
+  tests/test_joiner.py::test_run_auto_join_task_cancellation_refreshes_main_menu PASSED      [ 87%]
+  tests/test_joiner.py::test_run_auto_join_task_empty_links_refreshes_main_menu PASSED        [ 93%]
+  tests/test_joiner.py::test_run_auto_join_task_error_refreshes_main_menu PASSED              [100%]
+
+  ============================== 10 passed in 0.12s ==============================
+  ```
+
+---
+
 ## Standard Operating Procedure (SOP) for Developers & Agents
 
 1. Every newly created module must have a corresponding test suite located under `tests/test_<module_name>.py`.
 2. Every test must be mocked to prevent real network or MTProto/Telegram API traffic during CI/testing.
 3. Every new test module must be immediately documented in this guide with its CLI execution command, purpose, and expected terminal output.
+
 

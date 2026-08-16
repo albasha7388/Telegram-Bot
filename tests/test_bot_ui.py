@@ -754,6 +754,7 @@ async def test_open_downloads_menu_callback_handler() -> None:
 @pytest.mark.asyncio
 async def test_download_category_callback_handler_empty_soft_alert(mocker: MockerFixture) -> None:
     """Test category download alerts user with friendly soft toast when no dates exist."""
+    mocker.patch("bot_ui.handlers.get_user_active_session", return_value="test_sess")
     mocker.patch("bot_ui.handlers.get_available_dates_for_category", return_value=[])
 
     mock_state = MagicMock()
@@ -765,7 +766,7 @@ async def test_download_category_callback_handler_empty_soft_alert(mocker: Mocke
     await handlers.download_category_callback_handler(mock_callback, mock_state)
 
     mock_callback.answer.assert_awaited_once_with(
-        "📭 No links found in this category yet. Try extracting some first! 😊",
+        "📭 No links found for session 'test_sess' in this category yet. Try extracting some first! 😊",
         show_alert=True,
     )
 
@@ -773,6 +774,7 @@ async def test_download_category_callback_handler_empty_soft_alert(mocker: Mocke
 @pytest.mark.asyncio
 async def test_download_category_callback_handler_renders_dates(mocker: MockerFixture) -> None:
     """Test category selection transitions to selecting_date and renders dates keyboard."""
+    mocker.patch("bot_ui.handlers.get_user_active_session", return_value="test_sess")
     mocker.patch("bot_ui.handlers.get_available_dates_for_category", return_value=["2026-08-11"])
 
     mock_state = MagicMock()
@@ -788,7 +790,9 @@ async def test_download_category_callback_handler_renders_dates(mocker: MockerFi
     await handlers.download_category_callback_handler(mock_callback, mock_state)
 
     mock_state.set_state.assert_awaited_once_with(DownloadState.selecting_date)
-    mock_state.update_data.assert_awaited_once_with(category="whatsapp", category_title="📱 WhatsApp")
+    mock_state.update_data.assert_awaited_once_with(
+        category="whatsapp", category_title="📱 WhatsApp", session_name="test_sess"
+    )
     mock_callback.message.edit_text.assert_awaited_once()
     args, kwargs = mock_callback.message.edit_text.call_args
     assert "Download: 📱 WhatsApp" in kwargs["text"]
@@ -798,13 +802,16 @@ async def test_download_category_callback_handler_renders_dates(mocker: MockerFi
 @pytest.mark.asyncio
 async def test_download_date_callback_handler_renders_files(mocker: MockerFixture) -> None:
     """Test selecting a download date transitions to selecting_file and renders files keyboard."""
+    mocker.patch("bot_ui.handlers.get_user_active_session", return_value="test_sess")
     mocker.patch(
         "bot_ui.handlers.get_files_for_category_and_date",
         return_value=["part_1.txt", "part_2.txt"],
     )
 
     mock_state = MagicMock()
-    mock_state.get_data = AsyncMock(return_value={"category": "whatsapp", "category_title": "📱 WhatsApp"})
+    mock_state.get_data = AsyncMock(
+        return_value={"category": "whatsapp", "category_title": "📱 WhatsApp", "session_name": "test_sess"}
+    )
     mock_state.set_state = AsyncMock()
     mock_state.update_data = AsyncMock()
 
@@ -817,7 +824,9 @@ async def test_download_date_callback_handler_renders_files(mocker: MockerFixtur
     await handlers.download_date_callback_handler(mock_callback, mock_state)
 
     mock_state.set_state.assert_awaited_once_with(DownloadState.selecting_file)
-    mock_state.update_data.assert_awaited_once_with(selected_date="2026-08-11", current_page=1)
+    mock_state.update_data.assert_awaited_once_with(
+        selected_date="2026-08-11", current_page=1, session_name="test_sess"
+    )
     mock_callback.message.edit_text.assert_awaited_once()
     args, kwargs = mock_callback.message.edit_text.call_args
     assert "Download: 📱 WhatsApp" in kwargs["text"]
@@ -828,6 +837,7 @@ async def test_download_date_callback_handler_renders_files(mocker: MockerFixtur
 @pytest.mark.asyncio
 async def test_download_page_callback_handler_navigates_pages(mocker: MockerFixture) -> None:
     """Test dl_page callback navigates to target page and updates message markup and state."""
+    mocker.patch("bot_ui.handlers.get_user_active_session", return_value="test_sess")
     files = [f"part_{i}.txt" for i in range(1, 26)]
     mocker.patch(
         "bot_ui.handlers.get_files_for_category_and_date",
@@ -836,7 +846,7 @@ async def test_download_page_callback_handler_navigates_pages(mocker: MockerFixt
 
     mock_state = MagicMock()
     mock_state.get_data = AsyncMock(
-        return_value={"category": "telegram_groups", "category_title": "✈️ Telegram Groups"}
+        return_value={"category": "telegram_groups", "category_title": "✈️ Telegram Groups", "session_name": "test_sess"}
     )
     mock_state.set_state = AsyncMock()
     mock_state.update_data = AsyncMock()
@@ -851,7 +861,7 @@ async def test_download_page_callback_handler_navigates_pages(mocker: MockerFixt
 
     mock_state.set_state.assert_awaited_once_with(DownloadState.selecting_file)
     mock_state.update_data.assert_awaited_once_with(
-        category="telegram_groups", selected_date="2026-08-14", current_page=2
+        category="telegram_groups", selected_date="2026-08-14", current_page=2, session_name="test_sess"
     )
     mock_callback.message.edit_text.assert_awaited_once()
     args, kwargs = mock_callback.message.edit_text.call_args
@@ -863,10 +873,13 @@ async def test_download_page_callback_handler_navigates_pages(mocker: MockerFixt
 @pytest.mark.asyncio
 async def test_download_back_to_dates_callback_handler(mocker: MockerFixture) -> None:
     """Test back to dates navigation renders date list again."""
+    mocker.patch("bot_ui.handlers.get_user_active_session", return_value="test_sess")
     mocker.patch("bot_ui.handlers.get_available_dates_for_category", return_value=["2026-08-11"])
 
     mock_state = MagicMock()
-    mock_state.get_data = AsyncMock(return_value={"category": "whatsapp", "category_title": "📱 WhatsApp"})
+    mock_state.get_data = AsyncMock(
+        return_value={"category": "whatsapp", "category_title": "📱 WhatsApp", "session_name": "test_sess"}
+    )
     mock_state.set_state = AsyncMock()
 
     mock_callback = MagicMock()
@@ -1193,4 +1206,262 @@ async def test_del_sess_select_callback_handler_success(mocker: MockerFixture) -
     assert handlers.get_user_active_session(12345) is None
     mock_callback.answer.assert_awaited_once_with("🗑️ Session 'acc_to_delete' deleted!", show_alert=True)
     mock_callback.message.edit_text.assert_awaited_once()
+
+
+# --- Download & System Stats Session Isolation Handler Tests ---
+
+@pytest.mark.asyncio
+async def test_system_stats_callback_handler_active_session(mocker: MockerFixture) -> None:
+    """Test system stats callback displays metrics scoped to the active session."""
+    mocker.patch("bot_ui.handlers.get_user_active_session", return_value="sess_test")
+    mocker.patch("bot_ui.handlers.is_userbot_running", return_value=True)
+    mocker.patch("bot_ui.handlers.is_extraction_running", return_value=False)
+    mock_count = mocker.patch("bot_ui.handlers.get_total_links_count_async", return_value={
+        "whatsapp": 10,
+        "telegram_groups": 20,
+        "telegram_folders": 5,
+        "total": 35,
+    })
+    mock_files = mocker.patch("bot_ui.handlers.get_all_link_files", return_value=["p1.txt", "p2.txt"])
+
+    mock_callback = MagicMock()
+    mock_callback.from_user.id = 12345
+    mock_callback.message.edit_text = AsyncMock()
+    mock_callback.answer = AsyncMock()
+
+    await handlers.system_stats_callback_handler(mock_callback)
+
+    mock_count.assert_awaited_once_with(session_name="sess_test")
+    mock_files.assert_called_once_with(session_name="sess_test")
+    mock_callback.message.edit_text.assert_awaited_once()
+    args, kwargs = mock_callback.message.edit_text.call_args
+    assert "sess_test" in kwargs["text"]
+    assert "WhatsApp: <b>10</b>" in kwargs["text"]
+    assert "TG Groups: <b>20</b>" in kwargs["text"]
+    assert "TG Folders: <b>5</b>" in kwargs["text"]
+    assert "Total Links Saved:</b> <b>35</b>" in kwargs["text"]
+
+
+@pytest.mark.asyncio
+async def test_download_category_callback_handler_no_active_session(mocker: MockerFixture) -> None:
+    """Test download category alerts user when no session is active."""
+    mocker.patch("bot_ui.handlers.get_user_active_session", return_value=None)
+
+    mock_state = MagicMock()
+    mock_callback = MagicMock()
+    mock_callback.from_user.id = 12345
+    mock_callback.data = "dl_telegram_groups"
+    mock_callback.answer = AsyncMock()
+
+    await handlers.download_category_callback_handler(mock_callback, mock_state)
+
+    mock_callback.answer.assert_awaited_once_with(
+        "⚠️ Please select a Session (Account) first from the menu!",
+        show_alert=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_download_category_callback_handler_success(mocker: MockerFixture) -> None:
+    """Test download category searches dates for active session and renders dates keyboard."""
+    mocker.patch("bot_ui.handlers.get_user_active_session", return_value="sess_active")
+    mock_get_dates = mocker.patch("bot_ui.handlers.get_available_dates_for_category", return_value=["2026-08-14"])
+
+    mock_state = MagicMock()
+    mock_state.set_state = AsyncMock()
+    mock_state.update_data = AsyncMock()
+
+    mock_callback = MagicMock()
+    mock_callback.from_user.id = 12345
+    mock_callback.data = "dl_telegram_groups"
+    mock_callback.message.edit_text = AsyncMock()
+    mock_callback.answer = AsyncMock()
+
+    await handlers.download_category_callback_handler(mock_callback, mock_state)
+
+    mock_get_dates.assert_called_once_with("telegram_groups", session_name="sess_active")
+    mock_state.set_state.assert_awaited_once_with(DownloadState.selecting_date)
+    mock_state.update_data.assert_awaited_once_with(
+        category="telegram_groups",
+        category_title="✈️ Telegram Groups",
+        session_name="sess_active",
+    )
+    mock_callback.message.edit_text.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_download_date_callback_handler_success(mocker: MockerFixture) -> None:
+    """Test download date handler fetches files for active session and renders files list."""
+    mocker.patch("bot_ui.handlers.get_user_active_session", return_value="sess_active")
+    mock_get_files = mocker.patch(
+        "bot_ui.handlers.get_files_for_category_and_date",
+        return_value=["part_1.txt", "part_2.txt"],
+    )
+
+    mock_state = MagicMock()
+    mock_state.get_data = AsyncMock(return_value={
+        "category": "telegram_groups",
+        "category_title": "✈️ Telegram Groups",
+        "session_name": "sess_active",
+    })
+    mock_state.set_state = AsyncMock()
+    mock_state.update_data = AsyncMock()
+
+    mock_callback = MagicMock()
+    mock_callback.from_user.id = 12345
+    mock_callback.data = "dl_date_2026-08-14"
+    mock_callback.message.edit_text = AsyncMock()
+    mock_callback.answer = AsyncMock()
+
+    await handlers.download_date_callback_handler(mock_callback, mock_state)
+
+    mock_get_files.assert_called_once_with("telegram_groups", "2026-08-14", session_name="sess_active")
+    mock_state.set_state.assert_awaited_once_with(DownloadState.selecting_file)
+    mock_state.update_data.assert_awaited_once_with(
+        selected_date="2026-08-14",
+        current_page=1,
+        session_name="sess_active",
+    )
+    mock_callback.message.edit_text.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_download_page_callback_handler_success(mocker: MockerFixture) -> None:
+    """Test download page pagination navigates across pages with active session."""
+    mocker.patch("bot_ui.handlers.get_user_active_session", return_value="sess_active")
+    mock_get_files = mocker.patch(
+        "bot_ui.handlers.get_files_for_category_and_date",
+        return_value=[f"part_{i}.txt" for i in range(1, 25)],
+    )
+
+    mock_state = MagicMock()
+    mock_state.get_data = AsyncMock(return_value={
+        "category": "telegram_groups",
+        "category_title": "✈️ Telegram Groups",
+        "session_name": "sess_active",
+    })
+    mock_state.set_state = AsyncMock()
+    mock_state.update_data = AsyncMock()
+
+    mock_callback = MagicMock()
+    mock_callback.from_user.id = 12345
+    mock_callback.data = "dl_page_telegram_groups_2026-08-14_2"
+    mock_callback.message.edit_text = AsyncMock()
+    mock_callback.answer = AsyncMock()
+
+    await handlers.download_page_callback_handler(mock_callback, mock_state)
+
+    mock_get_files.assert_called_once_with("telegram_groups", "2026-08-14", session_name="sess_active")
+    mock_state.set_state.assert_awaited_once_with(DownloadState.selecting_file)
+    mock_state.update_data.assert_awaited_once_with(
+        category="telegram_groups",
+        selected_date="2026-08-14",
+        current_page=2,
+        session_name="sess_active",
+    )
+    mock_callback.message.edit_text.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_download_file_callback_handler_sends_isolated_file(
+    tmp_path: Path, mocker: MockerFixture
+) -> None:
+    """Test downloading a file sends the document attachment from session-isolated directory."""
+    mocker.patch("bot_ui.handlers.LINKS_DIR", tmp_path)
+    mocker.patch("bot_ui.handlers.get_user_active_session", return_value="sess_active")
+
+    session_file_dir = tmp_path / "sess_active" / "2026-08-14" / "telegram_groups"
+    session_file_dir.mkdir(parents=True, exist_ok=True)
+    target_file = session_file_dir / "part_1.txt"
+    target_file.write_text("https://t.me/g1\nhttps://t.me/g2", encoding="utf-8")
+
+    mock_state = MagicMock()
+    mock_state.get_data = AsyncMock(return_value={
+        "category": "telegram_groups",
+        "selected_date": "2026-08-14",
+        "category_title": "✈️ Telegram Groups",
+        "session_name": "sess_active",
+    })
+
+    mock_callback = MagicMock()
+    mock_callback.from_user.id = 12345
+    mock_callback.data = "dl_file_part_1.txt"
+    mock_callback.message.text = "Menu Text"
+    mock_callback.message.reply_markup = MagicMock()
+    mock_callback.message.answer_document = AsyncMock()
+    mock_callback.message.delete = AsyncMock()
+    mock_callback.message.answer = AsyncMock()
+    mock_callback.answer = AsyncMock()
+
+    await handlers.download_file_callback_handler(mock_callback, mock_state)
+
+    mock_callback.message.answer_document.assert_awaited_once()
+    args, kwargs = mock_callback.message.answer_document.call_args
+    assert "sess_active/2026-08-14/part_1.txt" in kwargs["caption"]
+    mock_callback.message.delete.assert_awaited_once()
+    mock_callback.message.answer.assert_awaited_once()
+
+
+# --- 11. Send Main Menu Auto-Refresh Tests ---
+
+@pytest.mark.asyncio
+async def test_send_main_menu_dispatches_with_resolved_session(mocker: MockerFixture) -> None:
+    """Test send_main_menu resolves user session, checks worker states, and sends fresh dashboard."""
+    mocker.patch("bot_ui.handlers.get_user_active_session", return_value="my_session")
+    mocker.patch("bot_ui.handlers.is_userbot_running", return_value=False)
+    mocker.patch("bot_ui.handlers.is_extraction_running", return_value=False)
+
+    mock_bot = MagicMock()
+    mock_msg = MagicMock()
+    mock_bot.send_message = AsyncMock(return_value=mock_msg)
+
+    result = await handlers.send_main_menu(bot=mock_bot, chat_id=987654)
+
+    assert result == mock_msg
+    mock_bot.send_message.assert_awaited_once()
+    _, kwargs = mock_bot.send_message.call_args
+    assert kwargs["chat_id"] == 987654
+    assert "Current Session: <code>my_session</code>" in kwargs["text"]
+    assert kwargs["parse_mode"] == "HTML"
+    assert kwargs["reply_markup"] is not None
+
+
+@pytest.mark.asyncio
+async def test_send_main_menu_explicit_session_overrides_lookup(mocker: MockerFixture) -> None:
+    """Test send_main_menu uses explicit session_name parameter when provided."""
+    mock_get_sess = mocker.patch("bot_ui.handlers.get_user_active_session")
+    mocker.patch("bot_ui.handlers.is_userbot_running", return_value=True)
+    mocker.patch("bot_ui.handlers.is_extraction_running", return_value=False)
+
+    mock_bot = MagicMock()
+    mock_bot.send_message = AsyncMock(return_value=MagicMock())
+
+    await handlers.send_main_menu(bot=mock_bot, chat_id=112233, session_name="explicit_sess")
+
+    mock_get_sess.assert_not_called()
+    mock_bot.send_message.assert_awaited_once()
+    _, kwargs = mock_bot.send_message.call_args
+    assert "Current Session: <code>explicit_sess</code>" in kwargs["text"]
+    # Auto-reply toggle should show Stop because is_userbot_running is True
+    row1_btn = kwargs["reply_markup"].inline_keyboard[0][0]
+    assert "Stop Auto-Reply" in row1_btn.text
+
+
+@pytest.mark.asyncio
+async def test_send_main_menu_handles_exception_gracefully() -> None:
+    """Test send_main_menu catches Telegram errors gracefully and returns None without raising."""
+    mock_bot = MagicMock()
+    mock_bot.send_message = AsyncMock(side_effect=Exception("Network error"))
+
+    result = await handlers.send_main_menu(bot=mock_bot, chat_id=999999, session_name="test_sess")
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_send_main_menu_invalid_bot_or_chat_id() -> None:
+    """Test send_main_menu returns None immediately when bot or chat_id is missing/invalid."""
+    assert await handlers.send_main_menu(bot=None, chat_id=12345) is None
+    assert await handlers.send_main_menu(bot=MagicMock(), chat_id=0) is None
+
+
 

@@ -7,6 +7,7 @@ progress updates to Aiogram, and pipelines discovered links into categorized sto
 Tracks granular extraction metrics per link type for live and final status reports.
 """
 
+import asyncio
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,8 +22,12 @@ from pyrogram.errors import (
     UsernameInvalid,
 )
 
+from aiogram.types import FSInputFile
+
 from config.settings import API_HASH, API_ID
+from core.config import ARCHIVE_CHANNEL_ID
 from core.file_manager import (
+    LINKS_DIR,
     save_folder_link,
     save_link,
     save_telegram_link,
@@ -137,6 +142,7 @@ async def run_extraction_task(
     }
     total_messages_checked = 0
     scanned_groups_count = 0
+    total_links_found = 0
 
     progress_msg: Any = None
     if bot and admin_chat_id:
@@ -203,32 +209,32 @@ async def run_extraction_task(
                             if normalized_target in ("all", "tg_groups", "telegram_groups", "tg_folders", "telegram_folders"):
                                 group_links, folder_links = extract_and_segregate_telegram_links(text_content)
 
-                                # Flush group_links -> data/links/YYYY-MM-DD/telegram_groups/part_X.txt
+                                # Flush group_links -> data/links/{session_name}/YYYY-MM-DD/telegram_groups/part_X.txt
                                 if normalized_target in ("all", "tg_groups", "telegram_groups"):
                                     for tg_link in group_links:
                                         try:
-                                            save_link(tg_link, category="telegram_groups")
+                                            save_link(tg_link, category="telegram_groups", session_name=session_name)
                                             counters["tg_groups"] += 1
                                             logger.debug("Persisted extracted Telegram group link: %s", tg_link)
                                         except Exception as exc:
                                             logger.error("Failed to persist Telegram group link '%s': %s", tg_link, exc)
 
-                                # Flush folder_links -> data/links/YYYY-MM-DD/telegram_folders/part_X.txt
+                                # Flush folder_links -> data/links/{session_name}/YYYY-MM-DD/telegram_folders/part_X.txt
                                 if normalized_target in ("all", "tg_folders", "telegram_folders"):
                                     for folder_link in folder_links:
                                         try:
-                                            save_link(folder_link, category="telegram_folders")
+                                            save_link(folder_link, category="telegram_folders", session_name=session_name)
                                             counters["tg_folders"] += 1
                                             logger.debug("Persisted extracted Telegram folder link: %s", folder_link)
                                         except Exception as exc:
                                             logger.error("Failed to persist Telegram folder link '%s': %s", folder_link, exc)
 
-                            # 2. WhatsApp Group links -> data/links/YYYY-MM-DD/whatsapp/part_X.txt
+                            # 2. WhatsApp Group links -> data/links/{session_name}/YYYY-MM-DD/whatsapp/part_X.txt
                             if normalized_target in ("all", "whatsapp"):
                                 for wa_link in extract_whatsapp_links(text_content):
                                     try:
                                         if validate_whatsapp_link(wa_link):
-                                            save_link(wa_link, category="whatsapp")
+                                            save_link(wa_link, category="whatsapp", session_name=session_name)
                                             counters["whatsapp"] += 1
                                             logger.debug("Persisted validated WhatsApp link: %s", wa_link)
                                     except Exception as exc:
@@ -277,30 +283,162 @@ async def run_extraction_task(
         )
 
         # Final completion notification
-        if bot and admin_chat_id and progress_msg:
-            try:
-                await bot.edit_message_text(
-                    chat_id=admin_chat_id,
-                    message_id=progress_msg.message_id,
-                    text=(
-                        f"✅ <b>Global Extraction Complete!</b>\n\n"
-                        f"Scanned Groups: <b>{scanned_groups_count}</b>\n"
-                        f"Checked Messages: <b>{total_messages_checked}</b>\n\n"
-                        f"📂 <b>Extracted Links Breakdown:</b>\n"
-                        f"├ 📱 WhatsApp: <b>{counters['whatsapp']}</b>\n"
-                        f"├ ✈️ TG Groups: <b>{counters['tg_groups']}</b>\n"
-                        f"└ 📁 TG Folders: <b>{counters['tg_folders']}</b>\n"
-                        f"━━━━━━━━━━━━━━━━━━\n"
-                        f"📈 <b>Total Links Saved:</b> <b>{total_links_found}</b>"
-                    ),
-                    parse_mode="HTML",
-                )
-            except Exception as exc:
-                logger.debug("Failed sending final extraction complete update: %s", exc)
+        if bot and admin_chat_id:
+            if progress_msg:
+                try:
+                    await bot.edit_message_text(
+                        chat_id=admin_chat_id,
+                        message_id=progress_msg.message_id,
+                        text=(
+                            f"✅ <b>Global Extraction Complete!</b>\n\n"
+                            f"Scanned Groups: <b>{scanned_groups_count}</b>\n"
+                            f"Checked Messages: <b>{total_messages_checked}</b>\n\n"
+                            f"📂 <b>Extracted Links Breakdown:</b>\n"
+                            f"├ 📱 WhatsApp: <b>{counters['whatsapp']}</b>\n"
+                            f"├ ✈️ TG Groups: <b>{counters['tg_groups']}</b>\n"
+                            f"└ 📁 TG Folders: <b>{counters['tg_folders']}</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━\n"
+                            f"📈 <b>Total Links Saved:</b> <b>{total_links_found}</b>"
+                        ),
+                        parse_mode="HTML",
+                    )
+                except Exception as exc:
+                    logger.debug("Failed sending final extraction complete update: %s", exc)
 
-    except RPCError as exc:
-        logger.error("Telegram RPC error during global extraction for session '%s': %s", session_name, exc)
-    except Exception as exc:
-        logger.error("Unexpected failure in global extraction for session '%s': %s", session_name, exc, exc_info=True)
+            # Automated persistent channel archive upload
+            if ARCHIVE_CHANNEL_ID and bot:
+                try:
+                    current_date_str = datetime.now().strftime("%Y-%m-%d")
+                    date_dir = LINKS_DIR / session_name / current_date_str
+                    if date_dir.exists() and date_dir.is_dir():
+                        for category_dir in sorted(date_dir.iterdir()):
+                            if category_dir.is_dir():
+                                category_name = category_dir.name
+                                for file_path in sorted(category_dir.glob("*.txt")):
+                                    if file_path.is_file():
+                                        try:
+                                            doc = FSInputFile(path=str(file_path), filename=file_path.name)
+                                            caption = (
+                                                f"📄 <b>New Links Archive</b>\n"
+                                                f"👤 <b>Session:</b> <code>{session_name}</code>\n"
+                                                f"📅 <b>Date:</b> <code>{current_date_str}</code>\n"
+                                                f"📂 <b>Category:</b> {category_name}\n"
+                                                f"📝 <b>File:</b> <code>{file_path.name}</code>"
+                                            )
+                                            await bot.send_document(
+                                                chat_id=ARCHIVE_CHANNEL_ID,
+                                                document=doc,
+                                                caption=caption,
+                                                parse_mode="HTML",
+                                            )
+                                            logger.info(
+                                                "Archived file '%s' (%s) to channel %s for session '%s'",
+                                                file_path.name,
+                                                category_name,
+                                                ARCHIVE_CHANNEL_ID,
+                                                session_name,
+                                            )
+                                        except Exception as doc_exc:
+                                            logger.error(
+                                                "Failed to upload '%s' to archive channel %s: %s",
+                                                file_path.name,
+                                                ARCHIVE_CHANNEL_ID,
+                                                doc_exc,
+                                            )
+                except Exception as archive_exc:
+                    logger.error("Error during automated link archiving: %s", archive_exc, exc_info=True)
+
+            # Guaranteed UI auto-refresh with fresh Main Menu
+            from core.process_manager import active_extractions
+            active_extractions.pop(session_name, None)
+            try:
+                from bot_ui.handlers import send_main_menu
+                await send_main_menu(bot=bot, chat_id=admin_chat_id, session_name=session_name)
+            except Exception as menu_exc:
+                logger.error("Failed to auto-refresh Main Menu after extraction completion: %s", menu_exc)
+
+    except asyncio.CancelledError:
+        logger.info("Global extraction task for session '%s' cancelled by admin.", session_name)
+        from core.process_manager import active_extractions
+        active_extractions.pop(session_name, None)
+        if bot and admin_chat_id:
+            if progress_msg:
+                try:
+                    await bot.edit_message_text(
+                        chat_id=admin_chat_id,
+                        message_id=progress_msg.message_id,
+                        text=(
+                            f"🛑 <b>Link Extraction Aborted by Admin</b>\n\n"
+                            f"Session: <code>{session_name}</code>\n"
+                            f"Scanned Groups: <b>{scanned_groups_count}</b>\n"
+                            f"Checked Messages: <b>{total_messages_checked}</b>\n"
+                            f"Discovered Links: <b>{sum(counters.values())}</b>\n\n"
+                            "🛑 <b>ABORTED BY ADMIN</b>"
+                        ),
+                        parse_mode="HTML",
+                    )
+                except Exception as ui_exc:
+                    logger.debug("Failed updating progress message on extraction abort: %s", ui_exc)
+            else:
+                try:
+                    await bot.send_message(
+                        chat_id=admin_chat_id,
+                        text=(
+                            f"🛑 <b>Link Extraction Aborted by Admin</b>\n\n"
+                            f"Session: <code>{session_name}</code>\n"
+                            "🛑 <b>ABORTED BY ADMIN</b>"
+                        ),
+                        parse_mode="HTML",
+                    )
+                except Exception as ui_exc:
+                    logger.debug("Failed sending abort notification: %s", ui_exc)
+            try:
+                from bot_ui.handlers import send_main_menu
+                await send_main_menu(bot=bot, chat_id=admin_chat_id, session_name=session_name)
+            except Exception as menu_exc:
+                logger.error("Failed to auto-refresh Main Menu after extraction abort: %s", menu_exc)
+
+    except (RPCError, Exception) as exc:
+        logger.error("Failure during global extraction for session '%s': %s", session_name, exc, exc_info=True)
+        from core.process_manager import active_extractions
+        active_extractions.pop(session_name, None)
+        if bot and admin_chat_id:
+            if progress_msg:
+                try:
+                    await bot.edit_message_text(
+                        chat_id=admin_chat_id,
+                        message_id=progress_msg.message_id,
+                        text=(
+                            f"❌ <b>Link Extraction Failed</b>\n\n"
+                            f"Session: <code>{session_name}</code>\n"
+                            f"Error occurred: <code>{type(exc).__name__}</code>\n"
+                            "Please check system logs."
+                        ),
+                        parse_mode="HTML",
+                    )
+                except Exception as ui_exc:
+                    logger.debug("Failed updating progress message on extraction failure: %s", ui_exc)
+            else:
+                try:
+                    await bot.send_message(
+                        chat_id=admin_chat_id,
+                        text=(
+                            f"❌ <b>Link Extraction Failed</b>\n\n"
+                            f"Session: <code>{session_name}</code>\n"
+                            f"Error occurred: <code>{type(exc).__name__}</code>\n"
+                            "Please check system logs."
+                        ),
+                        parse_mode="HTML",
+                    )
+                except Exception as ui_exc:
+                    logger.debug("Failed sending extraction failure notice: %s", ui_exc)
+            try:
+                from bot_ui.handlers import send_main_menu
+                await send_main_menu(bot=bot, chat_id=admin_chat_id, session_name=session_name)
+            except Exception as menu_exc:
+                logger.error("Failed to auto-refresh Main Menu after extraction failure: %s", menu_exc)
+    finally:
+        from core.process_manager import active_extractions
+        active_extractions.pop(session_name, None)
 
     return total_links_found

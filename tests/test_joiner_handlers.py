@@ -34,19 +34,24 @@ def test_get_available_group_dates_scanning(tmp_path: Path, mocker: MockerFixtur
     """Test get_available_group_dates correctly discovers date folders containing telegram_groups .txt files."""
     mocker.patch.object(joiner_handlers, "LINKS_DIR", tmp_path)
 
-    d1 = tmp_path / "2026-08-10" / "telegram_groups"
+    d1 = tmp_path / "acc1" / "2026-08-10" / "telegram_groups"
     d1.mkdir(parents=True, exist_ok=True)
     (d1 / "part_1.txt").write_text("https://t.me/g1")
 
-    d2 = tmp_path / "2026-08-11" / "telegram_groups"
+    d2 = tmp_path / "acc1" / "2026-08-11" / "telegram_groups"
     d2.mkdir(parents=True, exist_ok=True)
     (d2 / "part_1.txt").write_text("https://t.me/g2")
 
     # Empty date folder (no txt files)
-    d3 = tmp_path / "2026-08-12" / "telegram_groups"
+    d3 = tmp_path / "acc1" / "2026-08-12" / "telegram_groups"
     d3.mkdir(parents=True, exist_ok=True)
 
-    dates = joiner_handlers.get_available_group_dates()
+    # Another session
+    d_other = tmp_path / "acc2" / "2026-08-15" / "telegram_groups"
+    d_other.mkdir(parents=True, exist_ok=True)
+    (d_other / "part_1.txt").write_text("https://t.me/g3")
+
+    dates = joiner_handlers.get_available_group_dates(session_name="acc1")
     assert dates == ["2026-08-11", "2026-08-10"]
 
 
@@ -54,13 +59,13 @@ def test_get_group_files_for_date_scanning(tmp_path: Path, mocker: MockerFixture
     """Test get_group_files_for_date correctly returns sorted part files."""
     mocker.patch.object(joiner_handlers, "LINKS_DIR", tmp_path)
 
-    tg_dir = tmp_path / "2026-08-11" / "telegram_groups"
+    tg_dir = tmp_path / "acc1" / "2026-08-11" / "telegram_groups"
     tg_dir.mkdir(parents=True, exist_ok=True)
     (tg_dir / "part_2.txt").write_text("link2")
     (tg_dir / "part_1.txt").write_text("link1")
     (tg_dir / "notes.txt").write_text("notes")
 
-    files = joiner_handlers.get_group_files_for_date("2026-08-11")
+    files = joiner_handlers.get_group_files_for_date("2026-08-11", session_name="acc1")
     assert files == ["part_1.txt", "part_2.txt", "notes.txt"]
 
 
@@ -102,7 +107,7 @@ async def test_start_auto_join_handler_no_dates_found(
     await joiner_handlers.start_auto_join_handler(mock_callback, mock_state)
 
     mock_callback.answer.assert_awaited_once_with(
-        "📭 No Telegram group links found in storage yet. Extract some links first!",
+        "📭 No Telegram group links found for session 'acc1' in storage yet. Extract some links first!",
         show_alert=True,
     )
 
@@ -117,6 +122,7 @@ async def test_start_auto_join_handler_success_renders_dates(
 
     mock_state = MagicMock(spec=FSMContext)
     mock_state.set_state = AsyncMock()
+    mock_state.update_data = AsyncMock()
 
     mock_callback = MagicMock(spec=CallbackQuery)
     mock_callback.from_user = mock_user
@@ -127,6 +133,7 @@ async def test_start_auto_join_handler_success_renders_dates(
     await joiner_handlers.start_auto_join_handler(mock_callback, mock_state)
 
     mock_state.set_state.assert_awaited_once_with(JoinerState.selecting_date)
+    mock_state.update_data.assert_awaited_once_with(session_name="acc1")
     mock_callback.message.edit_text.assert_awaited_once()
     args, kwargs = mock_callback.message.edit_text.call_args
     assert "Auto-Joiner: Select Date" in kwargs["text"]
@@ -144,6 +151,7 @@ async def test_select_joiner_date_handler_no_files(
     mocker.patch("bot_ui.joiner_handlers.get_group_files_for_date", return_value=[])
 
     mock_state = MagicMock(spec=FSMContext)
+    mock_state.get_data = AsyncMock(return_value={"session_name": "acc1"})
     mock_callback = MagicMock(spec=CallbackQuery)
     mock_callback.from_user = mock_user
     mock_callback.data = "jdate_2026-08-11"
@@ -152,7 +160,7 @@ async def test_select_joiner_date_handler_no_files(
     await joiner_handlers.select_joiner_date_handler(mock_callback, mock_state)
 
     mock_callback.answer.assert_awaited_once_with(
-        "📭 No group link files found for date 2026-08-11.",
+        "📭 No group link files found for date 2026-08-11 in session 'acc1'.",
         show_alert=True,
     )
 
@@ -166,6 +174,7 @@ async def test_select_joiner_date_handler_success_renders_files(
     mocker.patch("bot_ui.joiner_handlers.get_group_files_for_date", return_value=["part_1.txt", "part_2.txt"])
 
     mock_state = MagicMock(spec=FSMContext)
+    mock_state.get_data = AsyncMock(return_value={"session_name": "acc1"})
     mock_state.set_state = AsyncMock()
     mock_state.update_data = AsyncMock()
 
@@ -179,7 +188,7 @@ async def test_select_joiner_date_handler_success_renders_files(
     await joiner_handlers.select_joiner_date_handler(mock_callback, mock_state)
 
     mock_state.set_state.assert_awaited_once_with(JoinerState.selecting_file)
-    mock_state.update_data.assert_awaited_once_with(selected_date="2026-08-11")
+    mock_state.update_data.assert_awaited_once_with(selected_date="2026-08-11", session_name="acc1")
     mock_callback.message.edit_text.assert_awaited_once()
     args, kwargs = mock_callback.message.edit_text.call_args
     assert "Auto-Joiner: Select File" in kwargs["text"]
@@ -197,7 +206,7 @@ async def test_select_joiner_file_handler_file_not_found(
     mocker.patch("bot_ui.joiner_handlers.get_user_active_session", return_value="acc1")
 
     mock_state = MagicMock(spec=FSMContext)
-    mock_state.get_data = AsyncMock(return_value={"selected_date": "2026-08-11"})
+    mock_state.get_data = AsyncMock(return_value={"selected_date": "2026-08-11", "session_name": "acc1"})
     mock_state.clear = AsyncMock()
 
     mock_callback = MagicMock(spec=CallbackQuery)
@@ -221,13 +230,13 @@ async def test_select_joiner_file_handler_success_spawns_task(
     mocker.patch("bot_ui.joiner_handlers.get_user_active_session", return_value="acc1")
     mock_run_task = mocker.patch("bot_ui.joiner_handlers.run_auto_join_task", new_callable=AsyncMock)
 
-    tg_dir = tmp_path / "2026-08-11" / "telegram_groups"
+    tg_dir = tmp_path / "acc1" / "2026-08-11" / "telegram_groups"
     tg_dir.mkdir(parents=True, exist_ok=True)
     target_file = tg_dir / "part_1.txt"
     target_file.write_text("https://t.me/g1")
 
     mock_state = MagicMock(spec=FSMContext)
-    mock_state.get_data = AsyncMock(return_value={"selected_date": "2026-08-11"})
+    mock_state.get_data = AsyncMock(return_value={"selected_date": "2026-08-11", "session_name": "acc1"})
     mock_state.clear = AsyncMock()
 
     mock_callback = MagicMock(spec=CallbackQuery)

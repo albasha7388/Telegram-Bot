@@ -51,6 +51,12 @@ _active_login_clients: dict[int, Client] = {}
 # Session name validation regex (alphanumeric, underscores, hyphens, 2-32 chars)
 SESSION_NAME_REGEX: Final[re.Pattern[str]] = re.compile(r"^[a-zA-Z0-9_-]{2,32}$")
 
+# International phone number regex (+ followed by 10 to 15 digits)
+PHONE_NUMBER_REGEX: Final[re.Pattern[str]] = re.compile(r"^\+\d{10,15}$")
+
+# Telegram OTP code regex (4 to 8 digits, typically 5 digits)
+OTP_CODE_REGEX: Final[re.Pattern[str]] = re.compile(r"^\d{4,8}$")
+
 
 async def cleanup_user_login_client(user_id: int) -> None:
     """Disconnect and deregister any active temporary login client for the specified user.
@@ -255,12 +261,13 @@ async def process_phone_number_handler(message: Message, state: FSMContext) -> N
     if not cleaned_phone.startswith("+") and cleaned_phone.isdigit():
         cleaned_phone = f"+{cleaned_phone}"
 
-    # Basic international phone regex validation (+ followed by 7-15 digits)
-    if not re.match(r"^\+[1-9]\d{6,14}$", cleaned_phone):
+    # Strict international phone regex validation (+ followed strictly by 10 to 15 digits)
+    if not PHONE_NUMBER_REGEX.match(cleaned_phone):
         error_text = (
             "⚠️ <b>Invalid Phone Number Format!</b>\n\n"
-            "Please send a valid international phone number starting with '+' and the country code.\n"
-            "Example: <code>+1234567890</code> or <code>+201234567890</code>"
+            "The phone number must start with '+' followed strictly by 10 to 15 digits.\n"
+            "Example: <code>+967770000000</code> or <code>+201234567890</code>\n\n"
+            "Please send a valid phone number in international format:"
         )
         await _update_prompt_ui(
             message=message,
@@ -296,15 +303,35 @@ async def process_phone_number_handler(message: Message, state: FSMContext) -> N
         await client.connect()
         sent_code = await client.send_code(cleaned_phone)
         phone_code_hash = sent_code.phone_code_hash
+    except PhoneNumberInvalid as exc:
+        logger.warning("Invalid phone number format provided by user %d: %s", user_id, exc)
+        await cleanup_user_login_client(user_id)
+        await state.clear()
+        active_session = get_user_active_session(user_id)
+        error_text = (
+            "❌ <b>Invalid phone number format.</b>\n\n"
+            "Telegram rejected the phone number as invalid. Please verify the country code and number, then try again."
+        )
+        await _update_prompt_ui(
+            message=message,
+            prompt_message_id=prompt_message_id,
+            text=error_text,
+            reply_markup=get_main_menu(
+                active_session=active_session,
+                is_userbot_on=is_userbot_running(active_session),
+                is_extractor_on=is_extraction_running(active_session),
+            ),
+        )
+        return
     except FloodWait as exc:
-        logger.warning("FloodWait of %d seconds when sending code to user %d.", exc.value, user_id)
+        wait_seconds = getattr(exc, "value", 0) or getattr(exc, "x", 0) or 60
+        logger.warning("FloodWait of %d seconds when sending code to user %d.", wait_seconds, user_id)
         await cleanup_user_login_client(user_id)
         await state.clear()
         active_session = get_user_active_session(user_id)
         flood_text = (
-            f"⏳ <b>Telegram Rate Limit (FloodWait)</b>\n\n"
-            f"Telegram requires a wait of <b>{exc.value}</b> seconds before sending another code.\n"
-            "Please try again later."
+            f"⚠️ <b>Telegram blocked requests. Please wait {wait_seconds} seconds.</b>\n\n"
+            "Too many code requests have been made for this account. Please wait before trying again."
         )
         await _update_prompt_ui(
             message=message,
@@ -317,8 +344,8 @@ async def process_phone_number_handler(message: Message, state: FSMContext) -> N
             ),
         )
         return
-    except (PhoneNumberInvalid, PhoneNumberUnoccupied, PhoneNumberBanned) as exc:
-        logger.warning("Invalid/unoccupied phone number provided by user %d: %s", user_id, exc)
+    except (PhoneNumberUnoccupied, PhoneNumberBanned) as exc:
+        logger.warning("Unoccupied/banned phone number provided by user %d: %s", user_id, exc)
         await cleanup_user_login_client(user_id)
         await state.clear()
         active_session = get_user_active_session(user_id)
@@ -422,10 +449,13 @@ async def process_otp_code_handler(message: Message, state: FSMContext) -> None:
     raw_code = message.text.strip() if message.text else ""
     cleaned_code = re.sub(r"[\s\-]", "", raw_code)
 
-    if not cleaned_code:
+    # Validate that OTP consists only of digits and is between 4 and 8 digits (Telegram OTP is standard 5 digits)
+    if not OTP_CODE_REGEX.match(cleaned_code):
         error_text = (
-            "⚠️ <b>Invalid Code!</b>\n\n"
-            "Please enter the numeric login code you received from Telegram:"
+            "⚠️ <b>Invalid OTP Code Format!</b>\n\n"
+            "The login code must contain only digits (typically 5 digits).\n"
+            "Example: <code>12345</code> or <code>1 2 3 4 5</code>\n\n"
+            "Please enter a valid numeric login code:"
         )
         await _update_prompt_ui(
             message=message,

@@ -391,3 +391,146 @@ async def test_run_auto_join_task_admin_cancellation(tmp_path: Path, mocker: Moc
     args, kwargs = mock_bot.edit_message_text.call_args
     assert "ABORTED BY ADMIN" in kwargs["text"]
     assert kwargs["reply_markup"] is not None
+
+
+# --- 4. Auto-Joiner UI Auto-Refresh on Exit Tests ---
+
+@pytest.mark.asyncio
+async def test_run_auto_join_task_completion_refreshes_main_menu(tmp_path: Path, mocker: MockerFixture) -> None:
+    """Test natural completion pops active_joiners and dispatches fresh Main Menu to admin."""
+    sample_file = tmp_path / "part_done.txt"
+    sample_file.write_text("https://t.me/done_group\n", encoding="utf-8")
+
+    from core.process_manager import active_joiners
+    active_joiners["join_done_sess"] = MagicMock()
+
+    mock_client = MagicMock()
+    mock_client.start = AsyncMock()
+    mock_client.join_chat = AsyncMock()
+    mock_client.is_connected = True
+    mock_client.stop = AsyncMock()
+    mocker.patch("userbot.joiner.Client", return_value=mock_client)
+    mocker.patch("asyncio.sleep", new_callable=AsyncMock)
+
+    mock_bot = MagicMock()
+    mock_bot.edit_message_text = AsyncMock()
+    mock_bot.send_message = AsyncMock()
+
+    stats = await joiner.run_auto_join_task(
+        session_name="join_done_sess",
+        file_path=str(sample_file),
+        bot=mock_bot,
+        admin_chat_id=555666,
+        message_id=777,
+    )
+
+    assert stats["joined"] == 1
+    # Active joiner registry must be cleared
+    assert "join_done_sess" not in active_joiners
+    # Completion UI displayed
+    mock_bot.edit_message_text.assert_awaited()
+    assert "Auto-Joiner Task Completed!" in mock_bot.edit_message_text.call_args.kwargs["text"]
+    # Fresh main menu dispatched
+    mock_bot.send_message.assert_awaited_once()
+    assert "Hybrid Telegram Control Panel" in mock_bot.send_message.call_args.kwargs["text"]
+
+
+@pytest.mark.asyncio
+async def test_run_auto_join_task_cancellation_refreshes_main_menu(tmp_path: Path, mocker: MockerFixture) -> None:
+    """Test cancellation pops active_joiners and dispatches fresh Main Menu to admin."""
+    sample_file = tmp_path / "part_cancel.txt"
+    sample_file.write_text("https://t.me/cancel_grp\n", encoding="utf-8")
+
+    from core.process_manager import active_joiners
+    active_joiners["join_cancel_sess"] = MagicMock()
+
+    mock_client = MagicMock()
+    mock_client.start = AsyncMock()
+    mock_client.join_chat = AsyncMock(side_effect=asyncio.CancelledError())
+    mock_client.is_connected = True
+    mock_client.stop = AsyncMock()
+    mocker.patch("userbot.joiner.Client", return_value=mock_client)
+    mocker.patch("asyncio.sleep", new_callable=AsyncMock)
+
+    mock_bot = MagicMock()
+    mock_bot.edit_message_text = AsyncMock()
+    mock_bot.send_message = AsyncMock()
+
+    await joiner.run_auto_join_task(
+        session_name="join_cancel_sess",
+        file_path=str(sample_file),
+        bot=mock_bot,
+        admin_chat_id=555666,
+        message_id=777,
+    )
+
+    # Active joiner registry must be cleared
+    assert "join_cancel_sess" not in active_joiners
+    # Abort UI displayed
+    mock_bot.edit_message_text.assert_awaited_once()
+    assert "ABORTED BY ADMIN" in mock_bot.edit_message_text.call_args.kwargs["text"]
+    # Fresh main menu dispatched
+    mock_bot.send_message.assert_awaited_once()
+    assert "Hybrid Telegram Control Panel" in mock_bot.send_message.call_args.kwargs["text"]
+
+
+@pytest.mark.asyncio
+async def test_run_auto_join_task_empty_links_refreshes_main_menu(tmp_path: Path) -> None:
+    """Test empty links file abort pops active_joiners and dispatches fresh Main Menu to admin."""
+    empty_file = tmp_path / "empty.txt"
+    empty_file.write_text("", encoding="utf-8")
+
+    from core.process_manager import active_joiners
+    active_joiners["join_empty_sess"] = MagicMock()
+
+    mock_bot = MagicMock()
+    mock_bot.edit_message_text = AsyncMock()
+    mock_bot.send_message = AsyncMock()
+
+    await joiner.run_auto_join_task(
+        session_name="join_empty_sess",
+        file_path=str(empty_file),
+        bot=mock_bot,
+        admin_chat_id=555666,
+        message_id=777,
+    )
+
+    assert "join_empty_sess" not in active_joiners
+    mock_bot.edit_message_text.assert_awaited_once()
+    assert "Auto-Joiner Aborted" in mock_bot.edit_message_text.call_args.kwargs["text"]
+    mock_bot.send_message.assert_awaited_once()
+    assert "Hybrid Telegram Control Panel" in mock_bot.send_message.call_args.kwargs["text"]
+
+
+@pytest.mark.asyncio
+async def test_run_auto_join_task_error_refreshes_main_menu(tmp_path: Path, mocker: MockerFixture) -> None:
+    """Test unexpected fatal error pops active_joiners and dispatches fresh Main Menu to admin."""
+    sample_file = tmp_path / "part_err.txt"
+    sample_file.write_text("https://t.me/err_grp\n", encoding="utf-8")
+
+    from core.process_manager import active_joiners
+    active_joiners["join_err_sess"] = MagicMock()
+
+    mock_client = MagicMock()
+    mock_client.start = AsyncMock(side_effect=RuntimeError("Pyrogram Client failed to start"))
+    mock_client.is_connected = False
+    mocker.patch("userbot.joiner.Client", return_value=mock_client)
+
+    mock_bot = MagicMock()
+    mock_bot.edit_message_text = AsyncMock()
+    mock_bot.send_message = AsyncMock()
+
+    await joiner.run_auto_join_task(
+        session_name="join_err_sess",
+        file_path=str(sample_file),
+        bot=mock_bot,
+        admin_chat_id=555666,
+        message_id=777,
+    )
+
+    assert "join_err_sess" not in active_joiners
+    mock_bot.edit_message_text.assert_awaited_once()
+    assert "Auto-Joiner Execution Failed" in mock_bot.edit_message_text.call_args.kwargs["text"]
+    mock_bot.send_message.assert_awaited_once()
+    assert "Hybrid Telegram Control Panel" in mock_bot.send_message.call_args.kwargs["text"]
+

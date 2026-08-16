@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 import re
 import threading
-from typing import Final
+from typing import Final, Optional
 
 from config.settings import LINKS_PER_FILE
 from core.logger_setup import setup_logger
@@ -109,15 +109,16 @@ def _get_target_part_file(category_dir: Path) -> Path:
     return latest_path
 
 
-def save_link(link: str, category: str = "telegram_groups") -> str:
-    """Append a link to its categorized date-stamped paginated text file.
+def save_link(link: str, category: str = "telegram_groups", session_name: str = "default") -> str:
+    """Append a link to its session-isolated categorized date-stamped paginated text file.
 
-    Follows directory schema `data/links/YYYY-MM-DD/<category>/part_X.txt` and
+    Follows directory schema `data/links/<session_name>/YYYY-MM-DD/<category>/part_X.txt` and
     enforces strict 100-link pagination per file.
 
     Args:
         link: The URL or invite link string to persist.
         category: Link category ('whatsapp', 'telegram_groups', 'telegram_folders').
+        session_name: Target session identifier for multi-tenant data isolation (default 'default').
 
     Returns:
         str: Absolute path to the destination part file.
@@ -133,7 +134,7 @@ def save_link(link: str, category: str = "telegram_groups") -> str:
 
     normalized_cat = _normalize_category(category)
     date_stamp = datetime.now().strftime("%Y-%m-%d")
-    target_dir = LINKS_DIR / date_stamp / normalized_cat
+    target_dir = LINKS_DIR / session_name / date_stamp / normalized_cat
 
     with _file_write_lock:
         try:
@@ -141,57 +142,61 @@ def save_link(link: str, category: str = "telegram_groups") -> str:
             with open(target_file, "a", encoding="utf-8") as file_handle:
                 file_handle.write(f"{cleaned_link}\n")
 
-            logger.info("Saved [%s] link '%s' to '%s'", normalized_cat, cleaned_link, target_file)
+            logger.info("Saved [%s] link '%s' for session '%s' to '%s'", normalized_cat, cleaned_link, session_name, target_file)
             return str(target_file.resolve())
         except OSError as exc:
             logger.error("Error writing link '%s' to storage: %s", cleaned_link, exc, exc_info=True)
             raise
 
 
-def save_whatsapp_link(link: str) -> str:
-    """Save an extracted WhatsApp group invite link into `whatsapp/part_X.txt`.
+def save_whatsapp_link(link: str, session_name: str = "default") -> str:
+    """Save an extracted WhatsApp group invite link into `<session_name>/<date>/whatsapp/part_X.txt`.
 
     Args:
         link: WhatsApp invite link URL.
+        session_name: Target session identifier.
 
     Returns:
         str: Absolute file path.
     """
-    return save_link(link, category="whatsapp")
+    return save_link(link, category="whatsapp", session_name=session_name)
 
 
-def save_folder_link(link: str) -> str:
-    """Save an extracted Telegram folder share link into `telegram_folders/part_X.txt`.
+def save_folder_link(link: str, session_name: str = "default") -> str:
+    """Save an extracted Telegram folder share link into `<session_name>/<date>/telegram_folders/part_X.txt`.
 
     Args:
         link: Telegram folder addlist link URL.
+        session_name: Target session identifier.
 
     Returns:
         str: Absolute file path.
     """
-    return save_link(link, category="telegram_folders")
+    return save_link(link, category="telegram_folders", session_name=session_name)
 
 
-def save_telegram_link(link: str) -> str:
-    """Save an extracted Telegram group/channel link into `telegram_groups/part_X.txt`.
+def save_telegram_link(link: str, session_name: str = "default") -> str:
+    """Save an extracted Telegram group/channel link into `<session_name>/<date>/telegram_groups/part_X.txt`.
 
     Args:
         link: Telegram channel or group link URL.
+        session_name: Target session identifier.
 
     Returns:
         str: Absolute file path.
     """
-    return save_link(link, category="telegram_groups")
+    return save_link(link, category="telegram_groups", session_name=session_name)
 
 
-def get_files_by_category(category: str) -> list[Path]:
+def get_files_by_category(category: str, session_name: Optional[str] = None) -> list[Path]:
     """Retrieve all paginated link text files for a specific category across all dates.
 
-    Searches across all date directories (`data/links/*/`) for the designated
-    category subdirectory and returns an ordered list of all `part_X.txt` file paths.
+    Searches across date directories for the designated category subdirectory,
+    optionally isolated to a specific session name, returning an ordered list of `part_X.txt` paths.
 
     Args:
         category: Target category ('whatsapp', 'telegram_groups', or 'telegram_folders').
+        session_name: Optional session identifier to isolate the search.
 
     Returns:
         list[Path]: Ordered list of Path objects for all matching files.
@@ -203,33 +208,56 @@ def get_files_by_category(category: str) -> list[Path]:
     normalized_cat = _normalize_category(category)
     matching_files: list[Path] = []
     part_pattern = re.compile(r"^part_(\d+)\.txt$")
+    date_pattern = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
-    # Iterate over all date folders in sorted chronological order
-    date_dirs = [d for d in LINKS_DIR.iterdir() if d.is_dir()]
-    date_dirs.sort(key=lambda d: d.name)
+    session_dirs: list[Path] = []
+    if session_name:
+        target_sess = LINKS_DIR / session_name
+        if target_sess.exists() and target_sess.is_dir():
+            session_dirs.append(target_sess)
+    else:
+        for item in sorted(LINKS_DIR.iterdir(), key=lambda d: d.name):
+            if item.is_dir():
+                if date_pattern.match(item.name):
+                    # Legacy flat date directory
+                    cat_dir = item / normalized_cat
+                    if cat_dir.exists() and cat_dir.is_dir():
+                        cat_files: list[tuple[int, Path]] = []
+                        for file_path in cat_dir.iterdir():
+                            if file_path.is_file() and file_path.suffix == ".txt":
+                                match = part_pattern.match(file_path.name)
+                                part_num = int(match.group(1)) if match else 0
+                                cat_files.append((part_num, file_path))
+                        cat_files.sort(key=lambda x: x[0])
+                        matching_files.extend([x[1] for x in cat_files])
+                else:
+                    session_dirs.append(item)
 
-    for date_dir in date_dirs:
-        cat_dir = date_dir / normalized_cat
-        if cat_dir.exists() and cat_dir.is_dir():
-            cat_files: list[tuple[int, Path]] = []
-            for file_path in cat_dir.iterdir():
-                if file_path.is_file() and file_path.suffix == ".txt":
-                    match = part_pattern.match(file_path.name)
-                    part_num = int(match.group(1)) if match else 0
-                    cat_files.append((part_num, file_path))
-
-            cat_files.sort(key=lambda item: item[0])
-            matching_files.extend([item[1] for item in cat_files])
+    for sess_dir in session_dirs:
+        date_dirs = [d for d in sess_dir.iterdir() if d.is_dir() and date_pattern.match(d.name)]
+        date_dirs.sort(key=lambda d: d.name)
+        for date_dir in date_dirs:
+            cat_dir = date_dir / normalized_cat
+            if cat_dir.exists() and cat_dir.is_dir():
+                cat_files = []
+                for file_path in cat_dir.iterdir():
+                    if file_path.is_file() and file_path.suffix == ".txt":
+                        match = part_pattern.match(file_path.name)
+                        part_num = int(match.group(1)) if match else 0
+                        cat_files.append((part_num, file_path))
+                cat_files.sort(key=lambda x: x[0])
+                matching_files.extend([x[1] for x in cat_files])
 
     logger.debug("Found %d file(s) for category '%s'", len(matching_files), normalized_cat)
     return matching_files
 
 
-def get_available_dates_for_category(category: str) -> list[str]:
-    """Scan data/links/ for date directories containing .txt files for a given category.
+def get_available_dates_for_category(category: str, session_name: Optional[str] = None) -> list[str]:
+    """Scan data/links/[{session_name}/] for date directories containing .txt files for a given category.
 
     Args:
         category: Raw or normalized category name ('whatsapp', 'telegram_groups', 'telegram_folders').
+        session_name: Optional session identifier to isolate scanned date directories.
 
     Returns:
         list[str]: Sorted list of date folder names (e.g. ['2026-08-11', '2026-08-10']).
@@ -238,33 +266,63 @@ def get_available_dates_for_category(category: str) -> list[str]:
         return []
 
     normalized_cat = _normalize_category(category)
-    date_folders: list[str] = []
+    date_folders: set[str] = set()
     date_pattern = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
-    for item in LINKS_DIR.iterdir():
-        if item.is_dir() and date_pattern.match(item.name):
-            cat_dir = item / normalized_cat
-            if cat_dir.exists() and cat_dir.is_dir():
-                txt_files = [f for f in cat_dir.iterdir() if f.is_file() and f.suffix == ".txt"]
-                if txt_files:
-                    date_folders.append(item.name)
+    if session_name:
+        session_dir = LINKS_DIR / session_name
+        if not session_dir.exists() or not session_dir.is_dir():
+            return []
+        for item in session_dir.iterdir():
+            if item.is_dir() and date_pattern.match(item.name):
+                cat_dir = item / normalized_cat
+                if cat_dir.exists() and cat_dir.is_dir():
+                    txt_files = [f for f in cat_dir.iterdir() if f.is_file() and f.suffix == ".txt"]
+                    if txt_files:
+                        date_folders.add(item.name)
+    else:
+        # Scan across all session subdirectories and legacy date directories
+        for sess_or_date in LINKS_DIR.iterdir():
+            if not sess_or_date.is_dir():
+                continue
+            if date_pattern.match(sess_or_date.name):
+                cat_dir = sess_or_date / normalized_cat
+                if cat_dir.exists() and cat_dir.is_dir():
+                    txt_files = [f for f in cat_dir.iterdir() if f.is_file() and f.suffix == ".txt"]
+                    if txt_files:
+                        date_folders.add(sess_or_date.name)
+            else:
+                for date_item in sess_or_date.iterdir():
+                    if date_item.is_dir() and date_pattern.match(date_item.name):
+                        cat_dir = date_item / normalized_cat
+                        if cat_dir.exists() and cat_dir.is_dir():
+                            txt_files = [f for f in cat_dir.iterdir() if f.is_file() and f.suffix == ".txt"]
+                            if txt_files:
+                                date_folders.add(date_item.name)
 
-    date_folders.sort(reverse=True)
-    return date_folders
+    result = sorted(date_folders, reverse=True)
+    return result
 
 
-def get_files_for_category_and_date(category: str, date_str: str) -> list[str]:
-    """Scan data/links/{date_str}/{category}/ for available .txt part files.
+def get_files_for_category_and_date(
+    category: str, date_str: str, session_name: Optional[str] = None
+) -> list[str]:
+    """Scan data/links/[{session_name}/]{date_str}/{category}/ for available .txt part files.
 
     Args:
         category: Raw or normalized category name.
         date_str: Date folder name (e.g. '2026-08-11').
+        session_name: Optional session identifier for isolated lookup.
 
     Returns:
         list[str]: Sorted list of part filenames (e.g. ['part_1.txt', 'part_2.txt']).
     """
     normalized_cat = _normalize_category(category)
-    cat_dir = LINKS_DIR / date_str / normalized_cat
+    if session_name:
+        cat_dir = LINKS_DIR / session_name / date_str / normalized_cat
+    else:
+        cat_dir = LINKS_DIR / date_str / normalized_cat
+
     if not cat_dir.exists() or not cat_dir.is_dir():
         return []
 
@@ -281,8 +339,11 @@ def get_files_for_category_and_date(category: str, date_str: str) -> list[str]:
     return [f[1] for f in files]
 
 
-def get_all_link_files() -> list[str]:
+def get_all_link_files(session_name: Optional[str] = None) -> list[str]:
     """Retrieve an ordered list of all paginated link storage text files across all categories and dates.
+
+    Args:
+        session_name: Optional session identifier to isolate file paths.
 
     Returns:
         list[str]: Sorted list of absolute file paths to all matching link files.
@@ -293,11 +354,9 @@ def get_all_link_files() -> list[str]:
 
     all_files: list[Path] = []
     for cat in VALID_CATEGORIES:
-        all_files.extend(get_files_by_category(cat))
+        all_files.extend(get_files_by_category(cat, session_name=session_name))
 
-    # Sort deterministically by date folder, category, and part
     all_files.sort(key=lambda p: str(p.resolve()))
-
     file_paths = [str(p.resolve()) for p in all_files]
     logger.debug("Found %d total categorized link file(s)", len(file_paths))
     return file_paths
@@ -320,12 +379,14 @@ def _count_lines_in_file(file_path_str: str) -> int:
         return 0
 
 
-def get_total_links_count() -> dict[str, int]:
+def get_total_links_count(session_name: Optional[str] = None) -> dict[str, int]:
     """Calculate the total number of extracted links categorized by type and cumulative total.
 
+    Args:
+        session_name: Optional session identifier to isolate counts.
+
     Returns:
-        dict[str, int]: Dictionary containing link counts per category ('whatsapp',
-        'telegram_groups', 'telegram_folders') and the cumulative 'total'.
+        dict[str, int]: Dictionary containing link counts per category and the cumulative total.
     """
     stats: dict[str, int] = {
         "whatsapp": 0,
@@ -339,7 +400,7 @@ def get_total_links_count() -> dict[str, int]:
         return stats
 
     for cat in VALID_CATEGORIES:
-        cat_files = get_files_by_category(cat)
+        cat_files = get_files_by_category(cat, session_name=session_name)
         cat_count = sum(_count_lines_in_file(str(p.resolve())) for p in cat_files)
         stats[cat] = cat_count
 
@@ -348,10 +409,13 @@ def get_total_links_count() -> dict[str, int]:
     return stats
 
 
-async def get_total_links_count_async() -> dict[str, int]:
+async def get_total_links_count_async(session_name: Optional[str] = None) -> dict[str, int]:
     """Calculate granular link stats asynchronously in a background thread to prevent blocking.
+
+    Args:
+        session_name: Optional session identifier.
 
     Returns:
         dict[str, int]: Granular category counts and overall total.
     """
-    return await asyncio.to_thread(get_total_links_count)
+    return await asyncio.to_thread(get_total_links_count, session_name)

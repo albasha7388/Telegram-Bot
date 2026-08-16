@@ -40,8 +40,11 @@ logger = setup_logger(__name__)
 router: Router = Router(name="joiner_router")
 
 
-def get_available_group_dates() -> list[str]:
-    """Scan the data/links/ directory for date folders containing telegram_groups .txt files.
+def get_available_group_dates(session_name: Optional[str] = None) -> list[str]:
+    """Scan the data/links/[{session_name}/] directory for date folders containing telegram_groups .txt files.
+
+    Args:
+        session_name: Optional session identifier for tenant-isolated date discovery.
 
     Returns:
         list[str]: Sorted list of date folder names (e.g. ['2026-08-10', '2026-08-11']).
@@ -49,31 +52,58 @@ def get_available_group_dates() -> list[str]:
     if not LINKS_DIR.exists():
         return []
 
-    date_folders: list[str] = []
+    date_folders: set[str] = set()
     date_pattern = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
-    for item in LINKS_DIR.iterdir():
-        if item.is_dir() and date_pattern.match(item.name):
-            tg_dir = item / "telegram_groups"
-            if tg_dir.exists() and tg_dir.is_dir():
-                txt_files = [f for f in tg_dir.iterdir() if f.is_file() and f.suffix == ".txt"]
-                if txt_files:
-                    date_folders.append(item.name)
+    if session_name:
+        session_dir = LINKS_DIR / session_name
+        if not session_dir.exists() or not session_dir.is_dir():
+            return []
+        for item in session_dir.iterdir():
+            if item.is_dir() and date_pattern.match(item.name):
+                tg_dir = item / "telegram_groups"
+                if tg_dir.exists() and tg_dir.is_dir():
+                    txt_files = [f for f in tg_dir.iterdir() if f.is_file() and f.suffix == ".txt"]
+                    if txt_files:
+                        date_folders.add(item.name)
+    else:
+        # Scan all sessions and legacy flat date folders
+        for sess_or_date in LINKS_DIR.iterdir():
+            if not sess_or_date.is_dir():
+                continue
+            if date_pattern.match(sess_or_date.name):
+                tg_dir = sess_or_date / "telegram_groups"
+                if tg_dir.exists() and tg_dir.is_dir():
+                    txt_files = [f for f in tg_dir.iterdir() if f.is_file() and f.suffix == ".txt"]
+                    if txt_files:
+                        date_folders.add(sess_or_date.name)
+            else:
+                for date_item in sess_or_date.iterdir():
+                    if date_item.is_dir() and date_pattern.match(date_item.name):
+                        tg_dir = date_item / "telegram_groups"
+                        if tg_dir.exists() and tg_dir.is_dir():
+                            txt_files = [f for f in tg_dir.iterdir() if f.is_file() and f.suffix == ".txt"]
+                            if txt_files:
+                                date_folders.add(date_item.name)
 
-    date_folders.sort(reverse=True)
-    return date_folders
+    return sorted(date_folders, reverse=True)
 
 
-def get_group_files_for_date(date_str: str) -> list[str]:
-    """Scan data/links/{date_str}/telegram_groups/ for available .txt files.
+def get_group_files_for_date(date_str: str, session_name: Optional[str] = None) -> list[str]:
+    """Scan data/links/[{session_name}/]{date_str}/telegram_groups/ for available .txt files.
 
     Args:
         date_str: Date folder name.
+        session_name: Optional session identifier for isolated file lookup.
 
     Returns:
         list[str]: Sorted list of file names (e.g. ['part_1.txt', 'part_2.txt']).
     """
-    tg_dir = LINKS_DIR / date_str / "telegram_groups"
+    if session_name:
+        tg_dir = LINKS_DIR / session_name / date_str / "telegram_groups"
+    else:
+        tg_dir = LINKS_DIR / date_str / "telegram_groups"
+
     if not tg_dir.exists() or not tg_dir.is_dir():
         return []
 
@@ -120,17 +150,18 @@ async def start_auto_join_handler(callback: CallbackQuery, state: FSMContext) ->
         )
         return
 
-    dates = get_available_group_dates()
+    dates = get_available_group_dates(session_name=active_session)
     if not dates:
-        logger.info("No telegram_groups link files found for user %d auto-join.", user_id)
+        logger.info("No telegram_groups link files found for session '%s' auto-join.", active_session)
         await safe_callback_answer(
             callback,
-            "📭 No Telegram group links found in storage yet. Extract some links first!",
+            f"📭 No Telegram group links found for session '{active_session}' in storage yet. Extract some links first!",
             show_alert=True,
         )
         return
 
     await state.set_state(JoinerState.selecting_date)
+    await state.update_data(session_name=active_session)
 
     prompt_text = (
         "🚪 <b>Auto-Joiner: Select Date (Step 1/2)</b>\n\n"
@@ -150,7 +181,7 @@ async def start_auto_join_handler(callback: CallbackQuery, state: FSMContext) ->
             logger.debug("Failed editing message on start auto-join: %s", exc)
 
     await safe_callback_answer(callback)
-    logger.info("User %d opened Auto-Joiner date selection.", user_id)
+    logger.info("User %d opened Auto-Joiner date selection for session '%s'.", user_id, active_session)
 
 
 # --- Step 2: Browse Files for Selected Date ---
@@ -170,23 +201,25 @@ async def select_joiner_date_handler(callback: CallbackQuery, state: FSMContext)
     selected_date = callback.data[len("jdate_"):]
     user_id = callback.from_user.id
     active_session = get_user_active_session(user_id)
+    state_data = await state.get_data()
+    session_name = active_session or state_data.get("session_name", "default")
 
-    files = get_group_files_for_date(selected_date)
+    files = get_group_files_for_date(selected_date, session_name=session_name)
     if not files:
         await safe_callback_answer(
             callback,
-            f"📭 No group link files found for date {selected_date}.",
+            f"📭 No group link files found for date {selected_date} in session '{session_name}'.",
             show_alert=True,
         )
         return
 
     await state.set_state(JoinerState.selecting_file)
-    await state.update_data(selected_date=selected_date)
+    await state.update_data(selected_date=selected_date, session_name=session_name)
 
     prompt_text = (
         "🚪 <b>Auto-Joiner: Select File (Step 2/2)</b>\n\n"
         f"📅 Date: <code>{selected_date}</code>\n"
-        f"🟢 Active Account: <code>{active_session or 'None'}</code>\n"
+        f"🟢 Active Account: <code>{session_name}</code>\n"
         f"📄 Available Files: <b>{len(files)}</b>\n\n"
         "Select the specific <code>.txt</code> file you want to execute Auto-Join on:"
     )
@@ -202,7 +235,7 @@ async def select_joiner_date_handler(callback: CallbackQuery, state: FSMContext)
             logger.debug("Failed editing message on select joiner date: %s", exc)
 
     await safe_callback_answer(callback)
-    logger.info("User %d selected date '%s' for Auto-Joiner.", user_id, selected_date)
+    logger.info("User %d selected date '%s' for Auto-Joiner on session '%s'.", user_id, selected_date, session_name)
 
 
 # --- Step 3: Execute Auto-Join on Selected File ---
@@ -222,6 +255,8 @@ async def select_joiner_file_handler(callback: CallbackQuery, state: FSMContext)
     selected_file = callback.data[len("jfile_"):]
     user_id = callback.from_user.id
     active_session = get_user_active_session(user_id)
+    state_data = await state.get_data()
+    session_name = active_session or state_data.get("session_name", "default")
 
     if not active_session:
         await safe_callback_answer(
@@ -240,13 +275,12 @@ async def select_joiner_file_handler(callback: CallbackQuery, state: FSMContext)
         )
         return
 
-    state_data = await state.get_data()
     selected_date = state_data.get("selected_date")
 
     # Fallback search if date was lost from FSM
     if not selected_date:
-        for d in get_available_group_dates():
-            if (LINKS_DIR / d / "telegram_groups" / selected_file).exists():
+        for d in get_available_group_dates(session_name=session_name):
+            if (LINKS_DIR / session_name / d / "telegram_groups" / selected_file).exists() or (LINKS_DIR / d / "telegram_groups" / selected_file).exists():
                 selected_date = d
                 break
 
@@ -259,7 +293,10 @@ async def select_joiner_file_handler(callback: CallbackQuery, state: FSMContext)
         await state.clear()
         return
 
-    full_path = LINKS_DIR / selected_date / "telegram_groups" / selected_file
+    full_path = LINKS_DIR / session_name / selected_date / "telegram_groups" / selected_file
+    if not full_path.exists():
+        full_path = LINKS_DIR / selected_date / "telegram_groups" / selected_file
+
     if not full_path.exists():
         await safe_callback_answer(
             callback,

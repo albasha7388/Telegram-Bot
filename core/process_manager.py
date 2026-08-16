@@ -193,7 +193,7 @@ async def stop_extraction_task(session_name: str) -> bool:
         bool: True if task was found and cancelled; False if not running.
     """
     task = active_extractions.get(session_name)
-    if task is None:
+    if task is None or task.done():
         logger.warning("Attempted to stop extraction task for '%s', but no active task found.", session_name)
         return False
 

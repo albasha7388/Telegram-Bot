@@ -88,6 +88,21 @@ def get_admin_id() -> Optional[int]:
     return None
 
 
+def get_archive_channel_id() -> Optional[int]:
+    """Retrieve optional Telegram ARCHIVE_CHANNEL_ID environment variable.
+
+    Returns:
+        Optional[int]: The archive Telegram channel ID if configured; None otherwise.
+    """
+    raw_id = os.getenv("ARCHIVE_CHANNEL_ID")
+    if raw_id and raw_id.strip():
+        try:
+            return int(raw_id.strip())
+        except ValueError:
+            return None
+    return None
+
+
 # System Constants
 MAX_DAILY_DMS: Final[int] = 20
 LINKS_PER_FILE: Final[int] = 100
@@ -116,4 +131,6 @@ def __getattr__(name: str) -> Any:
         return get_bot_token()
     if name == "ADMIN_ID":
         return get_admin_id()
+    if name == "ARCHIVE_CHANNEL_ID":
+        return get_archive_channel_id()
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")

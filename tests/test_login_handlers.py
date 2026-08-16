@@ -325,7 +325,7 @@ async def test_process_phone_number_flood_wait_handled(
     current_state = await fsm_context.get_state()
     assert current_state is None
 
-    assert any("FloodWait" in str(call) for call in mock_bot.edit_message_text.call_args_list)
+    assert any("wait" in str(call).lower() or "blocked" in str(call).lower() for call in mock_bot.edit_message_text.call_args_list)
 
 
 @pytest.mark.asyncio
@@ -362,7 +362,78 @@ async def test_process_phone_number_unoccupied_phone(
     assert any("Unoccupied" in str(call) or "Invalid" in str(call) for call in mock_bot.edit_message_text.call_args_list)
 
 
+@pytest.mark.asyncio
+async def test_process_phone_number_phone_number_invalid_error(
+    mock_user: User, mock_chat: Chat, fsm_context: FSMContext, mocker: MockerFixture
+) -> None:
+    """Test PhoneNumberInvalid error from Telegram cleans up client and alerts user with exact message."""
+    await fsm_context.set_state(LoginState.waiting_for_phone)
+    await fsm_context.update_data(prompt_message_id=42, session_name="test_session")
+
+    mock_client = MagicMock()
+    mock_client.connect = AsyncMock()
+    mock_client.send_code = AsyncMock(side_effect=PhoneNumberInvalid())
+
+    mocker.patch("bot_ui.login_handlers.Client", return_value=mock_client)
+    cleanup_mock = mocker.patch("bot_ui.login_handlers.cleanup_user_login_client", new_callable=AsyncMock)
+
+    mock_bot = MagicMock()
+    mock_bot.edit_message_text = AsyncMock()
+
+    mock_msg = MagicMock(spec=Message)
+    mock_msg.from_user = mock_user
+    mock_msg.chat = mock_chat
+    mock_msg.text = "+15551234567"
+    mock_msg.bot = mock_bot
+    mock_msg.delete = AsyncMock()
+
+    await login_handlers.process_phone_number_handler(mock_msg, fsm_context)
+
+    cleanup_mock.assert_awaited_once_with(mock_user.id)
+    current_state = await fsm_context.get_state()
+    assert current_state is None
+
+    assert any("Invalid phone number format" in str(call) for call in mock_bot.edit_message_text.call_args_list)
+
+
 # --- 5. Step 4: OTP Code Sign In & 2FA Detection ---
+
+@pytest.mark.asyncio
+async def test_process_otp_code_invalid_format(
+    mock_user: User, mock_chat: Chat, fsm_context: FSMContext
+) -> None:
+    """Test entering non-digit or malformed OTP code rejects with error and keeps state."""
+    await fsm_context.set_state(LoginState.waiting_for_code)
+    await fsm_context.update_data(
+        prompt_message_id=42,
+        session_name="account_test",
+        phone="+15551234567",
+        phone_code_hash="hash123",
+    )
+
+    mock_client = MagicMock()
+    mock_client.sign_in = AsyncMock()
+    login_handlers._active_login_clients[mock_user.id] = mock_client
+
+    mock_bot = MagicMock()
+    mock_bot.edit_message_text = AsyncMock()
+
+    mock_msg = MagicMock(spec=Message)
+    mock_msg.from_user = mock_user
+    mock_msg.chat = mock_chat
+    mock_msg.text = "invalid_code"
+    mock_msg.bot = mock_bot
+    mock_msg.delete = AsyncMock()
+
+    await login_handlers.process_otp_code_handler(mock_msg, fsm_context)
+
+    mock_msg.delete.assert_awaited_once()
+    mock_client.sign_in.assert_not_called()
+    current_state = await fsm_context.get_state()
+    assert current_state == LoginState.waiting_for_code.state
+
+    assert "Invalid OTP Code Format" in mock_bot.edit_message_text.call_args.kwargs["text"]
+
 
 @pytest.mark.asyncio
 async def test_process_otp_code_success_no_2fa(

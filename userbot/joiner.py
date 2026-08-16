@@ -166,6 +166,17 @@ async def run_auto_join_task(
                 )
             except Exception as exc:
                 logger.debug("Failed updating UI for empty link file: %s", exc)
+
+        from core.process_manager import active_joiners
+        active_joiners.pop(session_name, None)
+
+        if bot and admin_chat_id:
+            try:
+                from bot_ui.handlers import send_main_menu
+                await send_main_menu(bot=bot, chat_id=admin_chat_id, session_name=session_name)
+            except Exception as menu_exc:
+                logger.error("Failed auto-refreshing Main Menu after joiner empty target abort: %s", menu_exc)
+
         return stats
 
     client = Client(
@@ -273,6 +284,17 @@ async def run_auto_join_task(
                 logger.debug("Failed updating completion UI: %s", ui_exc)
 
         logger.info("Auto-Joiner completed task for '%s': %s", path_obj.name, stats)
+
+        from core.process_manager import active_joiners
+        active_joiners.pop(session_name, None)
+
+        if bot and admin_chat_id:
+            try:
+                from bot_ui.handlers import send_main_menu
+                await send_main_menu(bot=bot, chat_id=admin_chat_id, session_name=session_name)
+            except Exception as menu_exc:
+                logger.error("Failed auto-refreshing Main Menu after joiner completion: %s", menu_exc)
+
         return stats
 
     except asyncio.CancelledError:
@@ -299,6 +321,17 @@ async def run_auto_join_task(
                 )
             except Exception as ui_exc:
                 logger.debug("Failed updating UI on Auto-Joiner cancellation: %s", ui_exc)
+
+        from core.process_manager import active_joiners
+        active_joiners.pop(session_name, None)
+
+        if bot and admin_chat_id:
+            try:
+                from bot_ui.handlers import send_main_menu
+                await send_main_menu(bot=bot, chat_id=admin_chat_id, session_name=session_name)
+            except Exception as menu_exc:
+                logger.error("Failed auto-refreshing Main Menu after joiner cancellation: %s", menu_exc)
+
         return stats
 
     except Exception as exc:
@@ -319,6 +352,17 @@ async def run_auto_join_task(
                 )
             except Exception:
                 pass
+
+        from core.process_manager import active_joiners
+        active_joiners.pop(session_name, None)
+
+        if bot and admin_chat_id:
+            try:
+                from bot_ui.handlers import send_main_menu
+                await send_main_menu(bot=bot, chat_id=admin_chat_id, session_name=session_name)
+            except Exception as menu_exc:
+                logger.error("Failed auto-refreshing Main Menu after joiner error: %s", menu_exc)
+
         return stats
     finally:
         from core.process_manager import active_joiners

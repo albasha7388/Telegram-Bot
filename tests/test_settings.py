@@ -55,6 +55,19 @@ def test_valid_env_variables(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.BOT_TOKEN == "123456:mock_token_xyz"
 
 
+def test_archive_channel_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test ARCHIVE_CHANNEL_ID parsing as integer and handling when missing or invalid."""
+    monkeypatch.setenv("ARCHIVE_CHANNEL_ID", "-1001234567890")
+    assert settings.get_archive_channel_id() == -1001234567890
+    assert getattr(settings, "ARCHIVE_CHANNEL_ID") == -1001234567890
+
+    monkeypatch.delenv("ARCHIVE_CHANNEL_ID", raising=False)
+    assert settings.get_archive_channel_id() is None
+
+    monkeypatch.setenv("ARCHIVE_CHANNEL_ID", "invalid_id")
+    assert settings.get_archive_channel_id() is None
+
+
 def test_undefined_module_attribute() -> None:
     """Test that accessing undefined module attributes raises AttributeError."""
     with pytest.raises(AttributeError):
