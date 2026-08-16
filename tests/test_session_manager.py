@@ -201,3 +201,47 @@ def test_rename_session_os_error(tmp_path: Path, mocker: MockerFixture) -> None:
 
     success = session_manager.rename_session("src_acc", "dst_acc")
     assert success is False
+
+
+# --- 5. Environment StringSession Tests ---
+
+def test_get_available_sessions_merges_env_and_local(tmp_path: Path, mocker: MockerFixture, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test get_available_sessions discovers and merges environment sessions with local .session files."""
+    mocker.patch.object(session_manager, "SESSIONS_DIR", tmp_path)
+    (tmp_path / "local_account.session").write_text("dummy")
+
+    monkeypatch.setenv("SESSION_ACCOUNT_1", "string_session_val_1")
+    monkeypatch.setenv("SESSION_ACCOUNT_2", "string_session_val_2")
+    monkeypatch.setenv("OTHER_VAR", "ignored")
+
+    sessions = session_manager.get_available_sessions()
+    assert sessions == ["ACCOUNT_1", "ACCOUNT_2", "local_account"]
+
+
+def test_get_session_string_and_is_env_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test get_session_string and is_env_session properly resolve environment variables."""
+    monkeypatch.setenv("SESSION_PROD_USER", "prod_string_xyz")
+
+    assert session_manager.get_session_string("PROD_USER") == "prod_string_xyz"
+    assert session_manager.get_session_string("prod_user") == "prod_string_xyz"
+    assert session_manager.get_session_string("SESSION_PROD_USER") == "prod_string_xyz"
+    assert session_manager.is_env_session("PROD_USER") is True
+    assert session_manager.is_env_session("non_existent") is False
+
+
+def test_delete_and_rename_env_session_graceful(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that deleting or renaming an environment session is handled safely without file errors."""
+    monkeypatch.setenv("SESSION_CLOUD_BOT", "cloud_string_123")
+
+    session_manager.set_active_session("CLOUD_BOT")
+    assert session_manager.get_active_session() == "CLOUD_BOT"
+
+    # Delete env session: resets active session and returns True gracefully
+    deleted = session_manager.delete_session("CLOUD_BOT")
+    assert deleted is True
+    assert session_manager.get_active_session() is None
+
+    # Rename env session: returns False as env sessions cannot be renamed on disk
+    renamed = session_manager.rename_session("CLOUD_BOT", "NEW_CLOUD_BOT")
+    assert renamed is False
+

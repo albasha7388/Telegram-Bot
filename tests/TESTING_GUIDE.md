@@ -388,7 +388,7 @@ pytest -q
 
 ---
 
-## 13. MTProto Userbot Session Manager (Delete & Rename) Tests
+## 13. MTProto Userbot Session Manager (Delete, Rename & StringSession) Tests
 
 * **File:** [`tests/test_session_manager.py`](file:///c:/Users/Lenovo/Desktop/Telegram/tests/test_session_manager.py)
 * **Command:**
@@ -396,30 +396,34 @@ pytest -q
   pytest tests/test_session_manager.py -v
   ```
 * **Purpose:**
-  Verifies backend Pyrogram session management lifecycle and atomic file operations in `userbot/session_manager.py`:
-  - `get_available_sessions()`: directory existence verification, file filtering (ignoring `.session-journal`), alphanumeric sorting, and `OSError` resilience.
+  Verifies backend Pyrogram session management lifecycle, environment-based StringSession loading, and atomic file operations in `userbot/session_manager.py`:
+  - `get_available_sessions()`: scans environment variables for `SESSION_*` keys, merges with filesystem `.session` files without duplicates, directory existence verification, file filtering (ignoring `.session-journal`), alphanumeric sorting, and `OSError` resilience.
   - Global active session tracking: `get_active_session()` and `set_active_session()`.
-  - `delete_session()`: atomic deletion of `.session` file and associated SQLite journal files, automatic reset of global `_active_session` to `None` if the active account is deleted, non-existent target handling, and `OSError` safety.
-  - `rename_session()`: atomic renaming of `.session` and journal files, automatic update of global `_active_session` to the new name, duplicate target prevention, empty/invalid name rejection, and `OSError` handling.
+  - `get_session_string()` & `is_env_session()`: accurate detection and retrieval of environment variable StringSessions (`SESSION_{NAME}`).
+  - `delete_session()`: atomic deletion of `.session` file and associated SQLite journal files, safe handling of environment-based sessions without raising filesystem errors, automatic reset of global `_active_session` to `None` if the active account is deleted, non-existent target handling, and `OSError` safety.
+  - `rename_session()`: atomic renaming of `.session` and journal files, safe rejection of environment sessions which cannot be renamed on disk, automatic update of global `_active_session` to the new name, duplicate target prevention, empty/invalid name rejection, and `OSError` handling.
 * **Expected Output:**
   ```text
-  tests/test_session_manager.py::test_get_available_sessions_directory_not_found PASSED      [  6%]
-  tests/test_session_manager.py::test_get_available_sessions_listing PASSED                  [ 13%]
-  tests/test_session_manager.py::test_get_available_sessions_os_error PASSED                 [ 20%]
-  tests/test_session_manager.py::test_get_and_set_active_session PASSED                     [ 26%]
-  tests/test_session_manager.py::test_delete_session_success_non_active PASSED               [ 33%]
-  tests/test_session_manager.py::test_delete_session_success_resets_active PASSED            [ 40%]
-  tests/test_session_manager.py::test_delete_session_non_existent PASSED                    [ 46%]
-  tests/test_session_manager.py::test_delete_session_empty_name PASSED                      [ 53%]
-  tests/test_session_manager.py::test_delete_session_os_error PASSED                         [ 60%]
-  tests/test_session_manager.py::test_rename_session_success_non_active PASSED               [ 66%]
-  tests/test_session_manager.py::test_rename_session_success_updates_active PASSED            [ 73%]
-  tests/test_session_manager.py::test_rename_session_non_existent PASSED                     [ 80%]
-  tests/test_session_manager.py::test_rename_session_target_already_exists PASSED           [ 86%]
-  tests/test_session_manager.py::test_rename_session_invalid_names PASSED                    [ 93%]
-  tests/test_session_manager.py::test_rename_session_os_error PASSED                         [100%]
+  tests/test_session_manager.py::test_get_available_sessions_directory_not_found PASSED      [  5%]
+  tests/test_session_manager.py::test_get_available_sessions_listing PASSED                  [ 11%]
+  tests/test_session_manager.py::test_get_available_sessions_os_error PASSED                 [ 16%]
+  tests/test_session_manager.py::test_get_and_set_active_session PASSED                     [ 22%]
+  tests/test_session_manager.py::test_delete_session_success_non_active PASSED               [ 27%]
+  tests/test_session_manager.py::test_delete_session_success_resets_active PASSED            [ 33%]
+  tests/test_session_manager.py::test_delete_session_non_existent PASSED                    [ 38%]
+  tests/test_session_manager.py::test_delete_session_empty_name PASSED                      [ 44%]
+  tests/test_session_manager.py::test_delete_session_os_error PASSED                         [ 50%]
+  tests/test_session_manager.py::test_rename_session_success_non_active PASSED               [ 55%]
+  tests/test_session_manager.py::test_rename_session_success_updates_active PASSED            [ 61%]
+  tests/test_session_manager.py::test_rename_session_non_existent PASSED                     [ 66%]
+  tests/test_session_manager.py::test_rename_session_target_already_exists PASSED           [ 72%]
+  tests/test_session_manager.py::test_rename_session_invalid_names PASSED                    [ 77%]
+  tests/test_session_manager.py::test_rename_session_os_error PASSED                         [ 83%]
+  tests/test_session_manager.py::test_get_available_sessions_merges_env_and_local PASSED    [ 88%]
+  tests/test_session_manager.py::test_get_session_string_and_is_env_session PASSED          [ 94%]
+  tests/test_session_manager.py::test_delete_and_rename_env_session_graceful PASSED         [100%]
 
-  ============================== 15 passed in 0.10s ==============================
+  ============================== 18 passed in 0.12s ==============================
   ```
 
 ---

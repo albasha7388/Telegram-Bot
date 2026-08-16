@@ -34,6 +34,7 @@ from core.file_manager import (
     save_whatsapp_link,
 )
 from core.logger_setup import setup_logger
+from userbot.session_manager import get_session_string
 from validators.whatsapp_validator import extract_whatsapp_links, validate_whatsapp_link
 
 logger = setup_logger(__name__)
@@ -154,13 +155,23 @@ async def run_extraction_task(
         except Exception as exc:
             logger.warning("Could not send initial progress notification: %s", exc)
 
-    SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
-    app = Client(
-        name=session_name,
-        api_id=API_ID,
-        api_hash=API_HASH,
-        workdir=str(SESSIONS_DIR),
-    )
+    session_str = get_session_string(session_name)
+    if session_str:
+        app = Client(
+            name=session_name,
+            session_string=session_str,
+            api_id=API_ID,
+            api_hash=API_HASH,
+            in_memory=True,
+        )
+    else:
+        SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
+        app = Client(
+            name=session_name,
+            api_id=API_ID,
+            api_hash=API_HASH,
+            workdir=str(SESSIONS_DIR),
+        )
 
     normalized_target = target_type.strip().lower()
 

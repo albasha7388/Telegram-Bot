@@ -26,7 +26,7 @@ from pyrogram.errors import (
 from bot_ui.keyboards import get_back_keyboard, get_joiner_progress_keyboard
 from config.settings import API_HASH, API_ID
 from core.logger_setup import setup_logger
-from userbot.session_manager import SESSIONS_DIR
+from userbot.session_manager import SESSIONS_DIR, get_session_string
 
 logger = setup_logger(__name__)
 
@@ -179,12 +179,23 @@ async def run_auto_join_task(
 
         return stats
 
-    client = Client(
-        name=session_name,
-        api_id=API_ID,
-        api_hash=API_HASH,
-        workdir=str(SESSIONS_DIR),
-    )
+    session_str = get_session_string(session_name)
+    if session_str:
+        client = Client(
+            name=session_name,
+            session_string=session_str,
+            api_id=API_ID,
+            api_hash=API_HASH,
+            in_memory=True,
+        )
+    else:
+        SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
+        client = Client(
+            name=session_name,
+            api_id=API_ID,
+            api_hash=API_HASH,
+            workdir=str(SESSIONS_DIR),
+        )
 
     try:
         await client.start()

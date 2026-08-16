@@ -53,6 +53,7 @@ from userbot import client as userbot_client
 from userbot.session_manager import (
     delete_session,
     get_available_sessions,
+    is_env_session,
     rename_session,
 )
 
@@ -1212,6 +1213,14 @@ async def rename_sess_select_callback_handler(callback: CallbackQuery, state: FS
         return
 
     old_name = callback.data[len("rename_sess_"):]
+    if is_env_session(old_name):
+        await safe_callback_answer(
+            callback,
+            f"ℹ️ Session '{old_name}' is loaded from environment variables and cannot be renamed.",
+            show_alert=True,
+        )
+        return
+
     await state.set_state(SessionState.waiting_for_new_session_name)
     if callback.message:
         await state.update_data(
@@ -1395,6 +1404,14 @@ async def del_sess_select_callback_handler(callback: CallbackQuery) -> None:
         return
 
     session_name = callback.data[len("del_sess_"):]
+    if is_env_session(session_name):
+        await safe_callback_answer(
+            callback,
+            f"ℹ️ Session '{session_name}' is loaded from environment variables and cannot be deleted via the bot.",
+            show_alert=True,
+        )
+        return
+
     user_id = callback.from_user.id
 
     # Stop any running background workers on this session
