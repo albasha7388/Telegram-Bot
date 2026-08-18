@@ -26,13 +26,7 @@ from aiogram.types import FSInputFile
 
 from config.settings import API_HASH, API_ID
 from core.config import ARCHIVE_CHANNEL_ID
-from core.file_manager import (
-    LINKS_DIR,
-    save_folder_link,
-    save_link,
-    save_telegram_link,
-    save_whatsapp_link,
-)
+from core.file_manager import save_link
 from core.logger_setup import setup_logger
 from userbot.session_manager import get_session_string
 from validators.whatsapp_validator import extract_whatsapp_links, validate_whatsapp_link
@@ -136,6 +130,12 @@ async def run_extraction_task(
         session_name,
         target_type,
     )
+    run_time = datetime.now()
+    run_timestamp = run_time.strftime("%Y%m%d_%H%M%S")
+    run_date_str = run_time.strftime("%Y-%m-%d")
+    run_time_str = run_time.strftime("%H-%M-%S")
+    files_generated_this_run: set[str] = set()
+
     counters: dict[str, int] = {
         "whatsapp": 0,
         "tg_groups": 0,
@@ -224,7 +224,13 @@ async def run_extraction_task(
                                 if normalized_target in ("all", "tg_groups", "telegram_groups"):
                                     for tg_link in group_links:
                                         try:
-                                            save_link(tg_link, category="telegram_groups", session_name=session_name)
+                                            saved_file = save_link(
+                                                tg_link,
+                                                category="telegram_groups",
+                                                session_name=session_name,
+                                                run_timestamp=run_timestamp,
+                                            )
+                                            files_generated_this_run.add(saved_file)
                                             counters["tg_groups"] += 1
                                             logger.debug("Persisted extracted Telegram group link: %s", tg_link)
                                         except Exception as exc:
@@ -234,7 +240,13 @@ async def run_extraction_task(
                                 if normalized_target in ("all", "tg_folders", "telegram_folders"):
                                     for folder_link in folder_links:
                                         try:
-                                            save_link(folder_link, category="telegram_folders", session_name=session_name)
+                                            saved_file = save_link(
+                                                folder_link,
+                                                category="telegram_folders",
+                                                session_name=session_name,
+                                                run_timestamp=run_timestamp,
+                                            )
+                                            files_generated_this_run.add(saved_file)
                                             counters["tg_folders"] += 1
                                             logger.debug("Persisted extracted Telegram folder link: %s", folder_link)
                                         except Exception as exc:
@@ -245,7 +257,13 @@ async def run_extraction_task(
                                 for wa_link in extract_whatsapp_links(text_content):
                                     try:
                                         if validate_whatsapp_link(wa_link):
-                                            save_link(wa_link, category="whatsapp", session_name=session_name)
+                                            saved_file = save_link(
+                                                wa_link,
+                                                category="whatsapp",
+                                                session_name=session_name,
+                                                run_timestamp=run_timestamp,
+                                            )
+                                            files_generated_this_run.add(saved_file)
                                             counters["whatsapp"] += 1
                                             logger.debug("Persisted validated WhatsApp link: %s", wa_link)
                                     except Exception as exc:
@@ -317,45 +335,43 @@ async def run_extraction_task(
                     logger.debug("Failed sending final extraction complete update: %s", exc)
 
             # Automated persistent channel archive upload
-            if ARCHIVE_CHANNEL_ID and bot:
+            if ARCHIVE_CHANNEL_ID and bot and files_generated_this_run:
                 try:
-                    current_date_str = datetime.now().strftime("%Y-%m-%d")
-                    date_dir = LINKS_DIR / session_name / current_date_str
-                    if date_dir.exists() and date_dir.is_dir():
-                        for category_dir in sorted(date_dir.iterdir()):
-                            if category_dir.is_dir():
-                                category_name = category_dir.name
-                                for file_path in sorted(category_dir.glob("*.txt")):
-                                    if file_path.is_file():
-                                        try:
-                                            doc = FSInputFile(path=str(file_path), filename=file_path.name)
-                                            caption = (
-                                                f"📄 <b>New Links Archive</b>\n"
-                                                f"👤 <b>Session:</b> <code>{session_name}</code>\n"
-                                                f"📅 <b>Date:</b> <code>{current_date_str}</code>\n"
-                                                f"📂 <b>Category:</b> {category_name}\n"
-                                                f"📝 <b>File:</b> <code>{file_path.name}</code>"
-                                            )
-                                            await bot.send_document(
-                                                chat_id=ARCHIVE_CHANNEL_ID,
-                                                document=doc,
-                                                caption=caption,
-                                                parse_mode="HTML",
-                                            )
-                                            logger.info(
-                                                "Archived file '%s' (%s) to channel %s for session '%s'",
-                                                file_path.name,
-                                                category_name,
-                                                ARCHIVE_CHANNEL_ID,
-                                                session_name,
-                                            )
-                                        except Exception as doc_exc:
-                                            logger.error(
-                                                "Failed to upload '%s' to archive channel %s: %s",
-                                                file_path.name,
-                                                ARCHIVE_CHANNEL_ID,
-                                                doc_exc,
-                                            )
+                    for file_path_str in sorted(files_generated_this_run):
+                        file_path = Path(file_path_str)
+                        if file_path.exists() and file_path.is_file():
+                            category_name = file_path.parent.name
+                            custom_name = f"{session_name}_{category_name}_{run_date_str}_{run_time_str}.txt"
+                            try:
+                                doc = FSInputFile(path=str(file_path), filename=custom_name)
+                                caption = (
+                                    f"📄 <b>New Links Archive</b>\n"
+                                    f"👤 <b>Session:</b> <code>{session_name}</code>\n"
+                                    f"📅 <b>Date:</b> <code>{run_date_str}</code>\n"
+                                    f"📂 <b>Category:</b> {category_name}\n"
+                                    f"📝 <b>File:</b> <code>{custom_name}</code>"
+                                )
+                                await bot.send_document(
+                                    chat_id=ARCHIVE_CHANNEL_ID,
+                                    document=doc,
+                                    caption=caption,
+                                    parse_mode="HTML",
+                                )
+                                logger.info(
+                                    "Archived file '%s' as '%s' (%s) to channel %s for session '%s'",
+                                    file_path.name,
+                                    custom_name,
+                                    category_name,
+                                    ARCHIVE_CHANNEL_ID,
+                                    session_name,
+                                )
+                            except Exception as doc_exc:
+                                logger.error(
+                                    "Failed to upload '%s' to archive channel %s: %s",
+                                    file_path.name,
+                                    ARCHIVE_CHANNEL_ID,
+                                    doc_exc,
+                                )
                 except Exception as archive_exc:
                     logger.error("Error during automated link archiving: %s", archive_exc, exc_info=True)
 

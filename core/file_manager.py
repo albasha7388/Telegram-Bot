@@ -60,32 +60,46 @@ def _normalize_category(category: str) -> str:
     return CATEGORY_MAP.get(category.strip().lower(), "telegram_groups")
 
 
-def _get_target_part_file(category_dir: Path) -> Path:
+def _get_target_part_file(category_dir: Path, run_timestamp: Optional[str] = None) -> Path:
     """Determine the active paginated part file within a specific category directory.
 
-    Inspects all existing `part_X.txt` files, identifies the highest index part file,
-    and checks if it has reached the `LINKS_PER_FILE` limit (100 lines). If full,
-    advances to `part_{X+1}.txt`; otherwise, appends to the current part file.
+    Inspects existing part files, identifies the highest index part file for the given
+    run_timestamp (or legacy index if run_timestamp is None), and checks if it has reached
+    the `LINKS_PER_FILE` limit (100 lines). If full, advances to a new paginated part file.
 
     Args:
-        category_dir: Target directory path `data/links/YYYY-MM-DD/<category>/`.
+        category_dir: Target directory path `data/links/<session_name>/YYYY-MM-DD/<category>/`.
+        run_timestamp: Optional unique timestamp identifier for run isolation (e.g. '20260816_143000').
 
     Returns:
-        Path: Target `part_X.txt` file path ready for appending.
+        Path: Target part file path ready for appending.
     """
     category_dir.mkdir(parents=True, exist_ok=True)
 
-    part_pattern = re.compile(r"^part_(\d+)\.txt$")
+    if run_timestamp:
+        # Matches part_<run_timestamp>.txt, part_<idx>_<run_timestamp>.txt, or part_<run_timestamp>_<idx>.txt
+        part_pattern = re.compile(
+            rf"^part_(?:(\d+)_)?{re.escape(run_timestamp)}(?:_(\d+))?\.txt$"
+        )
+    else:
+        part_pattern = re.compile(r"^part_(\d+)\.txt$")
+
     existing_parts: list[tuple[int, Path]] = []
 
     for file_path in category_dir.iterdir():
         if file_path.is_file():
             match = part_pattern.match(file_path.name)
             if match:
-                part_idx = int(match.group(1))
+                if run_timestamp:
+                    idx_str = match.group(1) or match.group(2)
+                    part_idx = int(idx_str) if idx_str else 1
+                else:
+                    part_idx = int(match.group(1))
                 existing_parts.append((part_idx, file_path))
 
     if not existing_parts:
+        if run_timestamp:
+            return category_dir / f"part_{run_timestamp}.txt"
         return category_dir / "part_1.txt"
 
     existing_parts.sort(key=lambda item: item[0])
@@ -102,23 +116,35 @@ def _get_target_part_file(category_dir: Path) -> Path:
         logger.error("Failed reading '%s' for pagination calculation: %s", latest_path, exc)
 
     if line_count >= LINKS_PER_FILE:
-        new_part_path = category_dir / f"part_{latest_idx + 1}.txt"
+        new_idx = latest_idx + 1
+        if run_timestamp:
+            new_part_path = category_dir / f"part_{run_timestamp}_{new_idx}.txt"
+        else:
+            new_part_path = category_dir / f"part_{new_idx}.txt"
         logger.debug("Part %d full (%d lines). Rolling over to %s", latest_idx, line_count, new_part_path.name)
         return new_part_path
 
     return latest_path
 
 
-def save_link(link: str, category: str = "telegram_groups", session_name: str = "default") -> str:
+def save_link(
+    link: str,
+    category: str = "telegram_groups",
+    session_name: str = "default",
+    run_timestamp: Optional[str] = None,
+    run_id: Optional[str] = None,
+) -> str:
     """Append a link to its session-isolated categorized date-stamped paginated text file.
 
-    Follows directory schema `data/links/<session_name>/YYYY-MM-DD/<category>/part_X.txt` and
-    enforces strict 100-link pagination per file.
+    Follows directory schema `data/links/<session_name>/YYYY-MM-DD/<category>/part_X.txt` (or
+    `part_<run_timestamp>.txt` when isolated per run) and enforces strict 100-link pagination per file.
 
     Args:
         link: The URL or invite link string to persist.
         category: Link category ('whatsapp', 'telegram_groups', 'telegram_folders').
         session_name: Target session identifier for multi-tenant data isolation (default 'default').
+        run_timestamp: Optional unique timestamp identifier for run isolation (e.g. '20260816_143000').
+        run_id: Optional alias for run_timestamp.
 
     Returns:
         str: Absolute path to the destination part file.
@@ -132,13 +158,14 @@ def save_link(link: str, category: str = "telegram_groups", session_name: str = 
         logger.error("Attempted to save an empty or whitespace-only link.")
         raise ValueError("Cannot save an empty or whitespace-only link.")
 
+    effective_run_id = run_timestamp or run_id
     normalized_cat = _normalize_category(category)
     date_stamp = datetime.now().strftime("%Y-%m-%d")
     target_dir = LINKS_DIR / session_name / date_stamp / normalized_cat
 
     with _file_write_lock:
         try:
-            target_file = _get_target_part_file(target_dir)
+            target_file = _get_target_part_file(target_dir, run_timestamp=effective_run_id)
             with open(target_file, "a", encoding="utf-8") as file_handle:
                 file_handle.write(f"{cleaned_link}\n")
 
@@ -149,43 +176,64 @@ def save_link(link: str, category: str = "telegram_groups", session_name: str = 
             raise
 
 
-def save_whatsapp_link(link: str, session_name: str = "default") -> str:
+def save_whatsapp_link(
+    link: str,
+    session_name: str = "default",
+    run_timestamp: Optional[str] = None,
+    run_id: Optional[str] = None,
+) -> str:
     """Save an extracted WhatsApp group invite link into `<session_name>/<date>/whatsapp/part_X.txt`.
 
     Args:
         link: WhatsApp invite link URL.
         session_name: Target session identifier.
+        run_timestamp: Optional unique timestamp identifier for run isolation.
+        run_id: Optional alias for run_timestamp.
 
     Returns:
         str: Absolute file path.
     """
-    return save_link(link, category="whatsapp", session_name=session_name)
+    return save_link(link, category="whatsapp", session_name=session_name, run_timestamp=run_timestamp, run_id=run_id)
 
 
-def save_folder_link(link: str, session_name: str = "default") -> str:
+def save_folder_link(
+    link: str,
+    session_name: str = "default",
+    run_timestamp: Optional[str] = None,
+    run_id: Optional[str] = None,
+) -> str:
     """Save an extracted Telegram folder share link into `<session_name>/<date>/telegram_folders/part_X.txt`.
 
     Args:
         link: Telegram folder addlist link URL.
         session_name: Target session identifier.
+        run_timestamp: Optional unique timestamp identifier for run isolation.
+        run_id: Optional alias for run_timestamp.
 
     Returns:
         str: Absolute file path.
     """
-    return save_link(link, category="telegram_folders", session_name=session_name)
+    return save_link(link, category="telegram_folders", session_name=session_name, run_timestamp=run_timestamp, run_id=run_id)
 
 
-def save_telegram_link(link: str, session_name: str = "default") -> str:
+def save_telegram_link(
+    link: str,
+    session_name: str = "default",
+    run_timestamp: Optional[str] = None,
+    run_id: Optional[str] = None,
+) -> str:
     """Save an extracted Telegram group/channel link into `<session_name>/<date>/telegram_groups/part_X.txt`.
 
     Args:
         link: Telegram channel or group link URL.
         session_name: Target session identifier.
+        run_timestamp: Optional unique timestamp identifier for run isolation.
+        run_id: Optional alias for run_timestamp.
 
     Returns:
         str: Absolute file path.
     """
-    return save_link(link, category="telegram_groups", session_name=session_name)
+    return save_link(link, category="telegram_groups", session_name=session_name, run_timestamp=run_timestamp, run_id=run_id)
 
 
 def get_files_by_category(category: str, session_name: Optional[str] = None) -> list[Path]:

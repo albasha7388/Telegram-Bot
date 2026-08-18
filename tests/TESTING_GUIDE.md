@@ -72,18 +72,20 @@ pytest -q
   pytest tests/test_file_manager.py -v
   ```
 * **Purpose:**
-  Verifies input sanitization for links, creation of nested date-stamped category directories under dynamic session folders (`data/links/<session_name>/YYYY-MM-DD/<category>/part_X.txt`), strict 100-link pagination roll-over (`part_1.txt` -> `part_2.txt` -> `part_3.txt`), chronological and numerical ordering in `get_files_by_category()` scoped per session, granular category breakdown counting in `get_total_links_count()` returning a dictionary (`whatsapp`, `telegram_groups`, `telegram_folders`, `total`), non-blocking asynchronous counting via `get_total_links_count_async()`, date discovery via `get_available_dates_for_category()`, and part file discovery via `get_files_for_category_and_date()`.
+  Verifies input sanitization for links, creation of nested date-stamped category directories under dynamic session folders (`data/links/<session_name>/YYYY-MM-DD/<category>/part_X.txt`), strict 100-link pagination roll-over (`part_1.txt` -> `part_2.txt` -> `part_3.txt`), chronological and numerical ordering in `get_files_by_category()` scoped per session, granular category breakdown counting in `get_total_links_count()` returning a dictionary (`whatsapp`, `telegram_groups`, `telegram_folders`, `total`), non-blocking asynchronous counting via `get_total_links_count_async()`, date discovery via `get_available_dates_for_category()`, part file discovery via `get_files_for_category_and_date()`, and **run isolation** where `save_link(..., run_timestamp=...)` creates isolated files per run (`part_{run_timestamp}.txt`) with dedicated rollover pagination (`part_{run_timestamp}_2.txt`).
 * **Expected Output:**
   ```text
-  tests/test_file_manager.py::test_save_link_empty_validation PASSED                   [ 14%]
-  tests/test_file_manager.py::test_save_link_nested_directory_structure PASSED         [ 28%]
-  tests/test_file_manager.py::test_save_link_strict_100_pagination PASSED              [ 42%]
-  tests/test_file_manager.py::test_get_files_by_category_ordering PASSED               [ 57%]
-  tests/test_file_manager.py::test_get_all_link_files_and_total_count PASSED           [ 71%]
-  tests/test_file_manager.py::test_get_available_dates_for_category PASSED            [ 85%]
-  tests/test_file_manager.py::test_get_files_for_category_and_date PASSED              [100%]
+  tests/test_file_manager.py::test_save_link_empty_validation PASSED                   [ 11%]
+  tests/test_file_manager.py::test_save_link_nested_directory_structure PASSED         [ 22%]
+  tests/test_file_manager.py::test_save_link_strict_100_pagination PASSED              [ 33%]
+  tests/test_file_manager.py::test_get_files_by_category_ordering PASSED               [ 44%]
+  tests/test_file_manager.py::test_get_all_link_files_and_total_count PASSED           [ 55%]
+  tests/test_file_manager.py::test_get_available_dates_for_category PASSED            [ 66%]
+  tests/test_file_manager.py::test_get_files_for_category_and_date PASSED              [ 77%]
+  tests/test_file_manager.py::test_save_link_run_timestamp_isolation PASSED          [ 88%]
+  tests/test_file_manager.py::test_save_link_run_timestamp_pagination PASSED         [100%]
 
-  ============================== 7 passed in 0.06s ==============================
+  ============================== 9 passed in 0.07s ==============================
   ```
 
 ---
@@ -306,20 +308,21 @@ pytest -q
   pytest tests/test_extractor.py -v
   ```
 * **Purpose:**
-  Verifies asynchronous global group scanning across all user dialogs, exclusion of private chats, exact date bounds (`start_date`, `end_date`), dual extraction and segregation of standard Telegram group links vs folder (`addlist`) links into separate category directories (`telegram_groups` vs `telegram_folders`), multi-tenant session isolation ensuring all extracted files are saved under `data/links/{session_name}/{date}/{category}/part_X.txt`, granular target filtering (`target_type="whatsapp"`, `"tg_groups"`, `"tg_folders"`, `"all"`), live progress message updates via Aiogram, automated persistent cloud archiving via `bot.send_document()` to `ARCHIVE_CHANNEL_ID` with detailed HTML caption on successful extraction, categorized persistence for Telegram, folder, and WhatsApp formats, graceful error recovery on Telegram access restrictions (`ChatAdminRequired`), and guaranteed **UI Auto-Refresh** on natural completion, manual cancellation (`asyncio.CancelledError`), or fatal errors resetting `ProcessManager.active_extractions` and dispatching a fresh Main Menu dashboard.
+  Verifies asynchronous global group scanning across all user dialogs, exclusion of private chats, exact date bounds (`start_date`, `end_date`), dual extraction and segregation of standard Telegram group links vs folder (`addlist`) links into separate category directories (`telegram_groups` vs `telegram_folders`), multi-tenant session isolation ensuring all extracted files are saved with run timestamp isolation (`part_{run_timestamp}.txt`), granular target filtering (`target_type="whatsapp"`, `"tg_groups"`, `"tg_folders"`, `"all"`), live progress message updates via Aiogram, targeted automated cloud archiving via `bot.send_document()` to `ARCHIVE_CHANNEL_ID` that **only uploads files generated in the active run** (preventing duplicate uploads of earlier files from the same date), dynamic document renaming with Aiogram's `FSInputFile` using the exact `{session_name}_{category}_{date}_{time}.txt` format, categorized persistence for Telegram, folder, and WhatsApp formats, graceful error recovery on Telegram access restrictions (`ChatAdminRequired`), and guaranteed **UI Auto-Refresh** on natural completion, manual cancellation (`asyncio.CancelledError`), or fatal errors resetting `ProcessManager.active_extractions` and dispatching a fresh Main Menu dashboard.
 * **Expected Output:**
   ```text
-  tests/test_extractor.py::test_run_global_extraction_task_filters_groups_and_dates PASSED [ 11%]
-  tests/test_extractor.py::test_run_global_extraction_task_target_filtering PASSED         [ 22%]
-  tests/test_extractor.py::test_run_extraction_task_catches_group_level_errors PASSED      [ 33%]
-  tests/test_extractor.py::test_extract_and_segregate_telegram_links PASSED                [ 44%]
-  tests/test_extractor.py::test_extract_and_segregate_telegram_links_empty_or_none PASSED  [ 55%]
-  tests/test_extractor.py::test_run_extraction_task_mixed_links_segregated_saving PASSED   [ 66%]
-  tests/test_extractor.py::test_run_extraction_task_cancelled_refreshes_ui PASSED          [ 77%]
-  tests/test_extractor.py::test_run_extraction_task_fatal_error_refreshes_ui PASSED        [ 88%]
-  tests/test_extractor.py::test_run_extraction_task_archives_files_to_channel PASSED       [100%]
+  tests/test_extractor.py::test_run_global_extraction_task_filters_groups_and_dates PASSED [ 10%]
+  tests/test_extractor.py::test_run_global_extraction_task_target_filtering PASSED         [ 20%]
+  tests/test_extractor.py::test_run_extraction_task_catches_group_level_errors PASSED      [ 30%]
+  tests/test_extractor.py::test_extract_and_segregate_telegram_links PASSED                [ 40%]
+  tests/test_extractor.py::test_extract_and_segregate_telegram_links_empty_or_none PASSED  [ 50%]
+  tests/test_extractor.py::test_run_extraction_task_mixed_links_segregated_saving PASSED   [ 60%]
+  tests/test_extractor.py::test_run_extraction_task_cancelled_refreshes_ui PASSED          [ 70%]
+  tests/test_extractor.py::test_run_extraction_task_fatal_error_refreshes_ui PASSED        [ 80%]
+  tests/test_extractor.py::test_run_extraction_task_archives_only_generated_files_with_custom_name PASSED [ 90%]
+  tests/test_extractor.py::test_run_extraction_task_no_archive_when_no_files_generated PASSED [100%]
 
-  ============================== 9 passed in 0.11s ==============================
+  ============================== 10 passed in 0.12s ==============================
   ```
 
 ---

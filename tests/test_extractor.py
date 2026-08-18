@@ -189,7 +189,12 @@ async def test_run_global_extraction_task_target_filtering(mocker: MockerFixture
     )
 
     assert saved_count == 1
-    mock_save.assert_called_once_with("https://chat.whatsapp.com/ExtractMeOnly123", category="whatsapp", session_name="test_session")
+    assert mock_save.call_count == 1
+    call_args, call_kwargs = mock_save.call_args
+    assert call_args[0] == "https://chat.whatsapp.com/ExtractMeOnly123"
+    assert call_kwargs["category"] == "whatsapp"
+    assert call_kwargs["session_name"] == "test_session"
+    assert "run_timestamp" in call_kwargs
 
 
 @pytest.mark.asyncio
@@ -292,14 +297,17 @@ async def test_run_extraction_task_mixed_links_segregated_saving(
     assert saved_count == 5
 
     date_stamp = datetime.now().strftime("%Y-%m-%d")
-    groups_file = tmp_path / "test_session" / date_stamp / "telegram_groups" / "part_1.txt"
-    folders_file = tmp_path / "test_session" / date_stamp / "telegram_folders" / "part_1.txt"
-    whatsapp_file = tmp_path / "test_session" / date_stamp / "whatsapp" / "part_1.txt"
+    groups_files = list((tmp_path / "test_session" / date_stamp / "telegram_groups").glob("*.txt"))
+    folders_files = list((tmp_path / "test_session" / date_stamp / "telegram_folders").glob("*.txt"))
+    whatsapp_files = list((tmp_path / "test_session" / date_stamp / "whatsapp").glob("*.txt"))
 
-    # Assert physical directory segregation under session_name
-    assert groups_file.exists(), "test_session/telegram_groups/part_1.txt must exist"
-    assert folders_file.exists(), "test_session/telegram_folders/part_1.txt must exist"
-    assert whatsapp_file.exists(), "test_session/whatsapp/part_1.txt must exist"
+    assert len(groups_files) == 1, "test_session/telegram_groups/*.txt must exist"
+    assert len(folders_files) == 1, "test_session/telegram_folders/*.txt must exist"
+    assert len(whatsapp_files) == 1, "test_session/whatsapp/*.txt must exist"
+
+    groups_file = groups_files[0]
+    folders_file = folders_files[0]
+    whatsapp_file = whatsapp_files[0]
 
     groups_content = groups_file.read_text(encoding="utf-8").strip().splitlines()
     folders_content = folders_file.read_text(encoding="utf-8").strip().splitlines()
@@ -393,25 +401,41 @@ async def test_run_extraction_task_fatal_error_refreshes_ui(mocker: MockerFixtur
 
 
 @pytest.mark.asyncio
-async def test_run_extraction_task_archives_files_to_channel(mocker: MockerFixture, tmp_path: Path) -> None:
-    """Test that generated link files are archived to ARCHIVE_CHANNEL_ID when configured."""
+async def test_run_extraction_task_archives_only_generated_files_with_custom_name(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    """Test that only files generated in this run are archived and dynamically renamed."""
+    # Point LINKS_DIR to tmp_path
+    mocker.patch("core.file_manager.LINKS_DIR", tmp_path)
+    mocker.patch("userbot.extractor.ARCHIVE_CHANNEL_ID", -100999888777)
+    mocker.patch("userbot.extractor.validate_whatsapp_link", return_value=True)
+
+    session_name = "ACCOUNT_1"
+    today_str = datetime.now().strftime("%Y-%m-%d")
+
+    # Create a pre-existing old file from an earlier run on the same date
+    old_cat_dir = tmp_path / session_name / today_str / "telegram_groups"
+    old_cat_dir.mkdir(parents=True, exist_ok=True)
+    old_file = old_cat_dir / "part_20260101_000000.txt"
+    old_file.write_text("https://t.me/OldRunGroup\n", encoding="utf-8")
+
+    # Set up group message for the current run
+    dialog_group = MagicMock()
+    dialog_group.chat.type = ChatType.GROUP
+    dialog_group.chat.id = -10088888
+    dialog_group.chat.title = "CurrentRunGroup"
+
+    msg = MagicMock()
+    msg.date = None
+    msg.text = "https://chat.whatsapp.com/CurrentRunWaLink"
+    msg.caption = None
+
     mock_client = MagicMock()
     mock_client.__aenter__.return_value = mock_client
     mock_client.__aexit__.return_value = None
-    mock_client.get_dialogs.return_value = AsyncCustomIterator([])
+    mock_client.get_dialogs.return_value = AsyncCustomIterator([dialog_group])
+    mock_client.get_chat_history.return_value = AsyncCustomIterator([msg])
     mocker.patch("userbot.extractor.Client", return_value=mock_client)
-
-    # Set up mock archive channel ID and links directory
-    mocker.patch("userbot.extractor.ARCHIVE_CHANNEL_ID", -100999888777)
-    mock_links_dir = tmp_path / "links"
-    mocker.patch("userbot.extractor.LINKS_DIR", mock_links_dir)
-
-    session_name = "test_archive_session"
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    cat_dir = mock_links_dir / session_name / today_str / "telegram_groups"
-    cat_dir.mkdir(parents=True, exist_ok=True)
-    sample_file = cat_dir / "part_1.txt"
-    sample_file.write_text("https://t.me/testgroup1\nhttps://t.me/testgroup2\n", encoding="utf-8")
 
     mock_bot = MagicMock()
     mock_progress_msg = MagicMock()
@@ -422,19 +446,64 @@ async def test_run_extraction_task_archives_files_to_channel(mocker: MockerFixtu
 
     saved_count = await extractor.run_extraction_task(
         session_name=session_name,
+        target_type="whatsapp",
+        bot=mock_bot,
+        admin_chat_id=123456,
+    )
+
+    assert saved_count == 1
+
+    # Verify that send_document was called ONLY ONCE for the WhatsApp file generated in this run,
+    # and NOT for the old telegram_groups file from the previous run!
+    assert mock_bot.send_document.await_count == 1
+    call_kwargs = mock_bot.send_document.call_args.kwargs
+    assert call_kwargs["chat_id"] == -100999888777
+    assert call_kwargs["parse_mode"] == "HTML"
+
+    doc = call_kwargs["document"]
+    # Check dynamic custom filename format: {session_name}_{category}_{date}_{time}.txt
+    import re
+    expected_pattern = rf"^{session_name}_whatsapp_{today_str}_\d{{2}}-\d{{2}}-\d{{2}}\.txt$"
+    assert re.match(expected_pattern, doc.filename), f"Filename '{doc.filename}' did not match pattern '{expected_pattern}'"
+
+    # Check caption contains the custom filename and session
+    assert session_name in call_kwargs["caption"]
+    assert today_str in call_kwargs["caption"]
+    assert "whatsapp" in call_kwargs["caption"]
+    assert doc.filename in call_kwargs["caption"]
+
+
+@pytest.mark.asyncio
+async def test_run_extraction_task_no_archive_when_no_files_generated(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    """Test that no documents are uploaded when 0 links were discovered in this run."""
+    mocker.patch("userbot.extractor.ARCHIVE_CHANNEL_ID", -100999888777)
+    mocker.patch("core.file_manager.LINKS_DIR", tmp_path)
+
+    # Empty dialogs
+    mock_client = MagicMock()
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+    mock_client.get_dialogs.return_value = AsyncCustomIterator([])
+    mocker.patch("userbot.extractor.Client", return_value=mock_client)
+
+    mock_bot = MagicMock()
+    mock_progress_msg = MagicMock()
+    mock_progress_msg.message_id = 789
+    mock_bot.send_message = AsyncMock(return_value=mock_progress_msg)
+    mock_bot.edit_message_text = AsyncMock()
+    mock_bot.send_document = AsyncMock()
+
+    saved_count = await extractor.run_extraction_task(
+        session_name="test_session",
         bot=mock_bot,
         admin_chat_id=123456,
     )
 
     assert saved_count == 0
-    mock_bot.send_document.assert_awaited_once()
-    call_kwargs = mock_bot.send_document.call_args.kwargs
-    assert call_kwargs["chat_id"] == -100999888777
-    assert call_kwargs["parse_mode"] == "HTML"
-    assert session_name in call_kwargs["caption"]
-    assert today_str in call_kwargs["caption"]
-    assert "telegram_groups" in call_kwargs["caption"]
-    assert "part_1.txt" in call_kwargs["caption"]
+    # Must NOT send any archive documents
+    mock_bot.send_document.assert_not_called()
 
 
 

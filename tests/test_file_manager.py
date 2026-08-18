@@ -219,3 +219,58 @@ def test_get_files_for_category_and_date(tmp_path: Path, monkeypatch: pytest.Mon
     files = file_manager.get_files_for_category_and_date("telegram_folders", "2026-08-11", session_name="sess_active")
     assert files == ["part_1.txt", "part_2.txt", "notes.txt"]
 
+
+def test_save_link_run_timestamp_isolation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that save_link with different run_timestamps creates distinct files without appending to earlier runs."""
+    temp_links_dir = tmp_path / "links"
+    monkeypatch.setattr(file_manager, "LINKS_DIR", temp_links_dir)
+
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    wa_dir = temp_links_dir / "session_test" / date_str / "whatsapp"
+
+    run1_ts = "20260818_100000"
+    run2_ts = "20260818_120000"
+
+    p1 = file_manager.save_link("https://chat.whatsapp.com/run1_link", category="whatsapp", session_name="session_test", run_timestamp=run1_ts)
+    p2 = file_manager.save_link("https://chat.whatsapp.com/run2_link", category="whatsapp", session_name="session_test", run_timestamp=run2_ts)
+
+    assert f"part_{run1_ts}.txt" in p1
+    assert f"part_{run2_ts}.txt" in p2
+    assert p1 != p2
+
+    f1 = wa_dir / f"part_{run1_ts}.txt"
+    f2 = wa_dir / f"part_{run2_ts}.txt"
+
+    assert f1.exists()
+    assert f2.exists()
+    assert f1.read_text(encoding="utf-8").strip() == "https://chat.whatsapp.com/run1_link"
+    assert f2.read_text(encoding="utf-8").strip() == "https://chat.whatsapp.com/run2_link"
+
+
+def test_save_link_run_timestamp_pagination(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test pagination for save_link with run_timestamp rolls over to part_<timestamp>_2.txt after 100 links."""
+    temp_links_dir = tmp_path / "links"
+    monkeypatch.setattr(file_manager, "LINKS_DIR", temp_links_dir)
+
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    wa_dir = temp_links_dir / "session_test" / date_str / "whatsapp"
+    run_ts = "20260818_150000"
+
+    for i in range(1, 101):
+        file_manager.save_link(f"https://chat.whatsapp.com/link_{i}", category="whatsapp", session_name="session_test", run_timestamp=run_ts)
+
+    p1_file = wa_dir / f"part_{run_ts}.txt"
+    assert p1_file.exists()
+    p1_lines = [line.strip() for line in p1_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert len(p1_lines) == 100
+
+    # 101st link rolls over
+    p2 = file_manager.save_link("https://chat.whatsapp.com/link_101", category="whatsapp", session_name="session_test", run_timestamp=run_ts)
+    assert f"part_{run_ts}_2.txt" in p2
+    p2_file = wa_dir / f"part_{run_ts}_2.txt"
+    assert p2_file.exists()
+    p2_lines = [line.strip() for line in p2_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert len(p2_lines) == 1
+    assert p2_lines[0] == "https://chat.whatsapp.com/link_101"
+
+
