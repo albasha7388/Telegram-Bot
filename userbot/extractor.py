@@ -28,6 +28,7 @@ from config.settings import API_HASH, API_ID
 from core.config import ARCHIVE_CHANNEL_ID
 from core.file_manager import save_link
 from core.logger_setup import setup_logger
+from core.utils import format_timestamp
 from userbot.session_manager import get_session_string
 from validators.whatsapp_validator import extract_whatsapp_links, validate_whatsapp_link
 
@@ -131,7 +132,7 @@ async def run_extraction_task(
         target_type,
     )
     run_time = datetime.now()
-    run_timestamp = run_time.strftime("%Y%m%d_%H%M%S")
+    run_timestamp = format_timestamp(run_time)
     run_date_str = run_time.strftime("%Y-%m-%d")
     run_time_str = run_time.strftime("%H-%M-%S")
     files_generated_this_run: set[str] = set()
@@ -293,10 +294,15 @@ async def run_extraction_task(
 
                 except (ChatAdminRequired, UsernameInvalid, ChannelPrivate, PeerIdInvalid) as exc:
                     logger.warning("Access restricted for group '%s' (%s): %s", group_title, chat.id, exc)
+                except (TimeoutError, ConnectionError) as exc:
+                    logger.warning("Group '%s' (%s) skipped due to timeout or network drop: %s", group_title, chat.id, exc)
                 except RPCError as exc:
                     logger.error("RPC error processing group '%s' (%s): %s", group_title, chat.id, exc)
                 except Exception as exc:
                     logger.error("Unexpected error in group '%s' (%s): %s", group_title, chat.id, exc, exc_info=True)
+
+                # API Throttling cooldown between group iterations to mitigate anti-flood & rate limits
+                await asyncio.sleep(1.5)
 
         total_links_found = sum(counters.values())
 
@@ -341,7 +347,7 @@ async def run_extraction_task(
                         file_path = Path(file_path_str)
                         if file_path.exists() and file_path.is_file():
                             category_name = file_path.parent.name
-                            custom_name = f"{session_name}_{category_name}_{run_date_str}_{run_time_str}.txt"
+                            custom_name = f"{session_name}_{category_name}_{run_timestamp}.txt"
                             try:
                                 doc = FSInputFile(path=str(file_path), filename=custom_name)
                                 caption = (
@@ -356,6 +362,10 @@ async def run_extraction_task(
                                     document=doc,
                                     caption=caption,
                                     parse_mode="HTML",
+                                )
+                                await bot.send_message(
+                                    chat_id=ARCHIVE_CHANNEL_ID,
+                                    text="━━━━━━━━━━━━━━━━━━━━━━━━━━━",
                                 )
                                 logger.info(
                                     "Archived file '%s' as '%s' (%s) to channel %s for session '%s'",

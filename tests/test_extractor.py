@@ -233,6 +233,55 @@ async def test_run_extraction_task_catches_group_level_errors(mocker: MockerFixt
     assert saved_count == 1
 
 
+@pytest.mark.asyncio
+async def test_run_extraction_task_catches_timeout_and_network_errors_with_throttling(mocker: MockerFixture) -> None:
+    """Test that TimeoutError and ConnectionError are caught gracefully with warning log, and API throttling sleep is executed."""
+    mock_sleep = mocker.patch("userbot.extractor.asyncio.sleep", new_callable=AsyncMock)
+    mock_save = mocker.patch("userbot.extractor.save_link", return_value="/path/part_1.txt")
+
+    dialog_timeout = MagicMock()
+    dialog_timeout.chat.type = ChatType.GROUP
+    dialog_timeout.chat.id = -100111
+    dialog_timeout.chat.title = "TimeoutGroup"
+
+    dialog_conn_err = MagicMock()
+    dialog_conn_err.chat.type = ChatType.GROUP
+    dialog_conn_err.chat.id = -100222
+    dialog_conn_err.chat.title = "ConnectionErrorGroup"
+
+    dialog_ok = MagicMock()
+    dialog_ok.chat.type = ChatType.GROUP
+    dialog_ok.chat.id = -100333
+    dialog_ok.chat.title = "SuccessGroup"
+
+    msg_ok = MagicMock()
+    msg_ok.date = None
+    msg_ok.text = "https://t.me/SuccessLink"
+    msg_ok.caption = None
+
+    mock_client = MagicMock()
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+    mock_client.get_dialogs.return_value = AsyncCustomIterator([dialog_timeout, dialog_conn_err, dialog_ok])
+
+    def get_history_side_effect(chat_id: int, limit: int = 10000) -> AsyncCustomIterator:
+        if chat_id == -100111:
+            raise TimeoutError("Request timed out")
+        elif chat_id == -100222:
+            raise ConnectionError("Connection reset by peer")
+        return AsyncCustomIterator([msg_ok])
+
+    mock_client.get_chat_history.side_effect = get_history_side_effect
+    mocker.patch("userbot.extractor.Client", return_value=mock_client)
+
+    saved_count = await extractor.run_extraction_task("test_session")
+    assert saved_count == 1
+    assert mock_save.call_count == 1
+    # Verify throttling sleep (1.5s) was called after each dialog
+    assert mock_sleep.await_count == 3
+    mock_sleep.assert_awaited_with(1.5)
+
+
 def test_extract_and_segregate_telegram_links() -> None:
     """Test extract_and_segregate_telegram_links correctly segregates standard and folder links."""
     sample_text = (
@@ -460,10 +509,16 @@ async def test_run_extraction_task_archives_only_generated_files_with_custom_nam
     assert call_kwargs["chat_id"] == -100999888777
     assert call_kwargs["parse_mode"] == "HTML"
 
+    # Verify visual separator was sent to archive channel
+    mock_bot.send_message.assert_any_await(
+        chat_id=-100999888777,
+        text="━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+    )
+
     doc = call_kwargs["document"]
-    # Check dynamic custom filename format: {session_name}_{category}_{date}_{time}.txt
+    # Check dynamic custom filename format: {session_name}_{category}_{date}_Time_{time}.txt
     import re
-    expected_pattern = rf"^{session_name}_whatsapp_{today_str}_\d{{2}}-\d{{2}}-\d{{2}}\.txt$"
+    expected_pattern = rf"^{session_name}_whatsapp_{today_str}_Time_\d{{2}}-\d{{2}}-\d{{2}}\.txt$"
     assert re.match(expected_pattern, doc.filename), f"Filename '{doc.filename}' did not match pattern '{expected_pattern}'"
 
     # Check caption contains the custom filename and session

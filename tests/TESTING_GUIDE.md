@@ -286,16 +286,17 @@ pytest -q
   pytest tests/test_main.py -v
   ```
 * **Purpose:**
-  Verifies the main application dispatcher configuration in `main.py`, registration of the UI and Login routers, initialization of the Aiogram polling lifecycle alongside the background scheduler, and testing of `tools/create_session.py` session name sanitization rules and interactive Pyrogram client authorization context flow.
+  Verifies the main application dispatcher configuration in `main.py`, registration of the UI and Login routers, automatic admin startup notification hook dispatching `"🔄 System Update Complete"` to `ADMIN_ID`, initialization of the Aiogram polling lifecycle alongside the background scheduler, and testing of `tools/create_session.py` session name sanitization rules and interactive Pyrogram client authorization context flow.
 * **Expected Output:**
   ```text
-  tests/test_main.py::test_create_dispatcher_includes_ui_and_login_routers PASSED [ 20%]
-  tests/test_main.py::test_create_bot_custom_token PASSED                         [ 40%]
-  tests/test_main.py::test_main_polling_loop_invocation PASSED                    [ 60%]
-  tests/test_main.py::test_sanitize_session_name_rules PASSED                     [ 80%]
-  tests/test_main.py::test_create_new_session_flow PASSED                         [100%]
+  tests/test_main.py::test_create_dispatcher_includes_ui_and_login_routers PASSED [ 16%]
+  tests/test_main.py::test_create_bot_custom_token PASSED                         [ 33%]
+  tests/test_main.py::test_health_check_endpoint PASSED                           [ 50%]
+  tests/test_main.py::test_start_dummy_server_binding PASSED                      [ 66%]
+  tests/test_main.py::test_main_polling_loop_invocation PASSED                    [ 83%]
+  tests/test_main.py::test_main_startup_notification_exception_handled PASSED     [100%]
 
-  ============================== 5 passed in 0.05s ==============================
+  ============================== 6 passed in 0.06s ==============================
   ```
 
 ---
@@ -308,21 +309,22 @@ pytest -q
   pytest tests/test_extractor.py -v
   ```
 * **Purpose:**
-  Verifies asynchronous global group scanning across all user dialogs, exclusion of private chats, exact date bounds (`start_date`, `end_date`), dual extraction and segregation of standard Telegram group links vs folder (`addlist`) links into separate category directories (`telegram_groups` vs `telegram_folders`), multi-tenant session isolation ensuring all extracted files are saved with run timestamp isolation (`part_{run_timestamp}.txt`), granular target filtering (`target_type="whatsapp"`, `"tg_groups"`, `"tg_folders"`, `"all"`), live progress message updates via Aiogram, targeted automated cloud archiving via `bot.send_document()` to `ARCHIVE_CHANNEL_ID` that **only uploads files generated in the active run** (preventing duplicate uploads of earlier files from the same date), dynamic document renaming with Aiogram's `FSInputFile` using the exact `{session_name}_{category}_{date}_{time}.txt` format, categorized persistence for Telegram, folder, and WhatsApp formats, graceful error recovery on Telegram access restrictions (`ChatAdminRequired`), and guaranteed **UI Auto-Refresh** on natural completion, manual cancellation (`asyncio.CancelledError`), or fatal errors resetting `ProcessManager.active_extractions` and dispatching a fresh Main Menu dashboard.
+  Verifies asynchronous global group scanning across all user dialogs, exclusion of private chats, exact date bounds (`start_date`, `end_date`), dual extraction and segregation of standard Telegram group links vs folder (`addlist`) links into separate category directories (`telegram_groups` vs `telegram_folders`), multi-tenant session isolation ensuring all extracted files are saved with run timestamp isolation (`part_{run_timestamp}.txt`), granular target filtering (`target_type="whatsapp"`, `"tg_groups"`, `"tg_folders"`, `"all"`), live progress message updates via Aiogram, targeted automated cloud archiving via `bot.send_document()` to `ARCHIVE_CHANNEL_ID` that **only uploads files generated in the active run** (preventing duplicate uploads of earlier files from the same date), dynamic document renaming with Aiogram's `FSInputFile` using the readable `{session_name}_{category}_{date}_Time_{time}.txt` format (`%Y-%m-%d_Time_%H-%M-%S`), visual separator line message (`━━━━━━━━━━━━━━━━━━━━━━━━━━━`) sent between archived files in the archive channel, categorized persistence for Telegram, folder, and WhatsApp formats, graceful error recovery on Telegram access restrictions (`ChatAdminRequired`), network timeouts (`TimeoutError`, `ConnectionError`) and MTProto RPC errors (`RPCError`), Telegram anti-flood API throttling cooldown (`await asyncio.sleep(1.5)` between group iterations), and guaranteed **UI Auto-Refresh** on natural completion, manual cancellation (`asyncio.CancelledError`), or fatal errors resetting `ProcessManager.active_extractions` and dispatching a fresh Main Menu dashboard.
 * **Expected Output:**
   ```text
-  tests/test_extractor.py::test_run_global_extraction_task_filters_groups_and_dates PASSED [ 10%]
-  tests/test_extractor.py::test_run_global_extraction_task_target_filtering PASSED         [ 20%]
-  tests/test_extractor.py::test_run_extraction_task_catches_group_level_errors PASSED      [ 30%]
-  tests/test_extractor.py::test_extract_and_segregate_telegram_links PASSED                [ 40%]
-  tests/test_extractor.py::test_extract_and_segregate_telegram_links_empty_or_none PASSED  [ 50%]
-  tests/test_extractor.py::test_run_extraction_task_mixed_links_segregated_saving PASSED   [ 60%]
-  tests/test_extractor.py::test_run_extraction_task_cancelled_refreshes_ui PASSED          [ 70%]
-  tests/test_extractor.py::test_run_extraction_task_fatal_error_refreshes_ui PASSED        [ 80%]
+  tests/test_extractor.py::test_run_global_extraction_task_filters_groups_and_dates PASSED [  9%]
+  tests/test_extractor.py::test_run_global_extraction_task_target_filtering PASSED         [ 18%]
+  tests/test_extractor.py::test_run_extraction_task_catches_group_level_errors PASSED      [ 27%]
+  tests/test_extractor.py::test_run_extraction_task_catches_timeout_and_network_errors_with_throttling PASSED [ 36%]
+  tests/test_extractor.py::test_extract_and_segregate_telegram_links PASSED                [ 45%]
+  tests/test_extractor.py::test_extract_and_segregate_telegram_links_empty_or_none PASSED  [ 54%]
+  tests/test_extractor.py::test_run_extraction_task_mixed_links_segregated_saving PASSED   [ 63%]
+  tests/test_extractor.py::test_run_extraction_task_cancelled_refreshes_ui PASSED          [ 72%]
+  tests/test_extractor.py::test_run_extraction_task_fatal_error_refreshes_ui PASSED        [ 81%]
   tests/test_extractor.py::test_run_extraction_task_archives_only_generated_files_with_custom_name PASSED [ 90%]
   tests/test_extractor.py::test_run_extraction_task_no_archive_when_no_files_generated PASSED [100%]
 
-  ============================== 10 passed in 0.12s ==============================
+  ============================== 11 passed in 0.14s ==============================
   ```
 
 ---

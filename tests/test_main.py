@@ -67,6 +67,7 @@ async def test_start_dummy_server_binding(mocker: MockerFixture) -> None:
 async def test_main_polling_loop_invocation(mocker: MockerFixture) -> None:
     """Test that main() properly initializes components, starts dummy server, starts scheduler, and executes start_polling."""
     mock_bot = MagicMock()
+    mock_bot.send_message = AsyncMock()
     mock_bot.session.close = AsyncMock()
 
     mock_dp = MagicMock()
@@ -78,14 +79,42 @@ async def test_main_polling_loop_invocation(mocker: MockerFixture) -> None:
     mocker.patch("main.create_bot", return_value=mock_bot)
     mocker.patch("main.create_dispatcher", return_value=mock_dp)
     mock_start_dummy = mocker.patch("main.start_dummy_server", return_value=None)
+    mocker.patch("main.ADMIN_ID", 123456789)
 
     await main_app.main()
 
     mock_start_scheduler.assert_called_once()
     mock_start_dummy.assert_called_once()
+    mock_bot.send_message.assert_awaited_once_with(
+        chat_id=123456789,
+        text="🔄 <b>System Update Complete</b>\n\nThe bot has been successfully restarted, updated, and is ready for new tasks.",
+        parse_mode="HTML",
+    )
     mock_dp.start_polling.assert_awaited_once_with(mock_bot, drop_pending_updates=True)
     mock_scheduler.shutdown.assert_called_once_with(wait=False)
     mock_bot.session.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_main_startup_notification_exception_handled(mocker: MockerFixture) -> None:
+    """Test that failure to send admin startup notification does not crash main()."""
+    mock_bot = MagicMock()
+    mock_bot.send_message = AsyncMock(side_effect=Exception("Telegram network error"))
+    mock_bot.session.close = AsyncMock()
+
+    mock_dp = MagicMock()
+    mock_dp.start_polling = AsyncMock()
+
+    mock_scheduler = MagicMock()
+    mocker.patch("main.start_scheduler", return_value=mock_scheduler)
+    mocker.patch("main.create_bot", return_value=mock_bot)
+    mocker.patch("main.create_dispatcher", return_value=mock_dp)
+    mocker.patch("main.start_dummy_server", return_value=None)
+    mocker.patch("main.ADMIN_ID", 123456789)
+
+    await main_app.main()
+
+    mock_dp.start_polling.assert_awaited_once()
 
 
 # --- 2. Session Creation CLI Tool Tests ---

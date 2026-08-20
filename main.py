@@ -79,6 +79,18 @@ async def main() -> None:
     dp = create_dispatcher()
     scheduler = start_scheduler(bot=bot, admin_chat_id=ADMIN_ID)
 
+    # Startup Notification Hook
+    if ADMIN_ID:
+        try:
+            await bot.send_message(
+                chat_id=ADMIN_ID,
+                text="🔄 <b>System Update Complete</b>\n\nThe bot has been successfully restarted, updated, and is ready for new tasks.",
+                parse_mode="HTML",
+            )
+            logger.info("Sent system update startup notification to admin (ID: %s).", ADMIN_ID)
+        except Exception as exc:
+            logger.warning("Could not send startup notification to admin: %s", exc)
+
     logger.info("Starting Aiogram polling loop for Control UI...")
     try:
         asyncio.create_task(start_dummy_server())
