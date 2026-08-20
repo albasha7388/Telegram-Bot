@@ -9,7 +9,7 @@ Tracks granular extraction metrics per link type for live and final status repor
 
 import asyncio
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Final, Optional
 from pyrogram import Client
@@ -131,7 +131,7 @@ async def run_extraction_task(
         session_name,
         target_type,
     )
-    run_time = datetime.now()
+    run_time = datetime.now(timezone(timedelta(hours=3)))
     run_timestamp = format_timestamp(run_time)
     run_date_str = run_time.strftime("%Y-%m-%d")
     run_time_str = run_time.strftime("%H-%M-%S")
@@ -164,6 +164,7 @@ async def run_extraction_task(
             api_id=API_ID,
             api_hash=API_HASH,
             in_memory=True,
+            no_updates=True,
         )
     else:
         SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
@@ -172,6 +173,7 @@ async def run_extraction_task(
             api_id=API_ID,
             api_hash=API_HASH,
             workdir=str(SESSIONS_DIR),
+            no_updates=True,
         )
 
     normalized_target = target_type.strip().lower()
@@ -343,11 +345,11 @@ async def run_extraction_task(
             # Automated persistent channel archive upload
             if ARCHIVE_CHANNEL_ID and bot and files_generated_this_run:
                 try:
-                    for file_path_str in sorted(files_generated_this_run):
+                    for index, file_path_str in enumerate(sorted(files_generated_this_run), start=1):
                         file_path = Path(file_path_str)
                         if file_path.exists() and file_path.is_file():
                             category_name = file_path.parent.name
-                            custom_name = f"{session_name}_{category_name}_{run_timestamp}.txt"
+                            custom_name = f"{session_name}_{category_name}_{run_date_str}_{index}.txt"
                             try:
                                 doc = FSInputFile(path=str(file_path), filename=custom_name)
                                 caption = (

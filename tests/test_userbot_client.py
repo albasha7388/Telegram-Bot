@@ -40,9 +40,43 @@ async def test_handle_auto_reply_successful_dm(mocker: MockerFixture) -> None:
     mock_client.send_message.assert_awaited_once()
     call_args = mock_client.send_message.call_args[1]
     assert call_args["chat_id"] == 987654321
-    assert "السلام عليكم" in call_args["text"]
+    assert "خدمات" in call_args["text"] or "نقدم" in call_args["text"]
     assert userbot_client._daily_dm_count == 1
     assert userbot_client.daily_dms_count["alpha_session"] == 1
+
+
+@pytest.mark.asyncio
+async def test_handle_auto_reply_ab_messaging_toggle(mocker: MockerFixture) -> None:
+    """Test that A/B messages toggle sequentially."""
+    mocker.patch("userbot.client.evaluate_message", return_value=True)
+    mocker.patch("userbot.client.random.uniform", return_value=0.01)
+    mocker.patch("asyncio.sleep", new_callable=AsyncMock)
+
+    mock_client = MagicMock()
+    mock_client.name = "alpha_session"
+    mock_client.send_message = AsyncMock()
+
+    mock_message = MagicMock()
+    mock_message.text = "ابي احد يحل لي واجب ضروري"
+    mock_message.from_user.id = 987654321
+
+    # First call
+    await userbot_client.handle_auto_reply(mock_client, mock_message)
+    call_args1 = mock_client.send_message.call_args_list[-1][1]
+    msg1 = call_args1["text"]
+
+    # Second call
+    await userbot_client.handle_auto_reply(mock_client, mock_message)
+    call_args2 = mock_client.send_message.call_args_list[-1][1]
+    msg2 = call_args2["text"]
+
+    # Third call
+    await userbot_client.handle_auto_reply(mock_client, mock_message)
+    call_args3 = mock_client.send_message.call_args_list[-1][1]
+    msg3 = call_args3["text"]
+
+    assert msg1 != msg2
+    assert msg1 == msg3
 
 
 @pytest.mark.asyncio

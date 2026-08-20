@@ -187,6 +187,7 @@ async def run_auto_join_task(
             api_id=API_ID,
             api_hash=API_HASH,
             in_memory=True,
+            no_updates=True,
         )
     else:
         SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
@@ -195,6 +196,7 @@ async def run_auto_join_task(
             api_id=API_ID,
             api_hash=API_HASH,
             workdir=str(SESSIONS_DIR),
+            no_updates=True,
         )
 
     try:

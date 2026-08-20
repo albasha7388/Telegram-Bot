@@ -150,11 +150,12 @@ pytest -q
   pytest tests/test_userbot_client.py -v
   ```
 * **Purpose:**
-  Verifies asynchronous Pyrogram message listeners using `pytest-mock` and `pytest-asyncio`. Checks that genuine student inquiries trigger private message replies after a simulated sleep delay, enforces early daily DM limit checks (`MAX_DAILY_DMS = 20`) before intent processing, verifies bulletproof error handling for `UserPrivacyRestricted`, `UserIsBlocked`, `PeerIdInvalid`, and fallback exceptions ensuring the daily counter is NOT incremented on failed sends, validates multi-source link extraction routing, and verifies graceful `stop_userbot_client` disconnects.
+  Verifies asynchronous Pyrogram message listeners using `pytest-mock` and `pytest-asyncio`. Checks that genuine student inquiries trigger private message replies after a simulated sleep delay, enforces early daily DM limit checks (`MAX_DAILY_DMS = 20`) before intent processing, verifies bulletproof error handling for `UserPrivacyRestricted`, `UserIsBlocked`, `PeerIdInvalid`, and fallback exceptions ensuring the daily counter is NOT incremented on failed sends, validates multi-source link extraction routing, verifies A/B promotional message sequential toggling (`test_handle_auto_reply_ab_messaging_toggle`), and verifies graceful `stop_userbot_client` disconnects.
 * **Expected Output:**
   ```text
-  tests/test_userbot_client.py::test_handle_auto_reply_successful_dm PASSED                 [ 11%]
-  tests/test_userbot_client.py::test_handle_auto_reply_catches_privacy_restricted_no_counter_increment PASSED [ 22%]
+  tests/test_userbot_client.py::test_handle_auto_reply_successful_dm PASSED                 [ 10%]
+  tests/test_userbot_client.py::test_handle_auto_reply_ab_messaging_toggle PASSED           [ 20%]
+  tests/test_userbot_client.py::test_handle_auto_reply_catches_privacy_restricted_no_counter_increment PASSED [ 30%]
   tests/test_userbot_client.py::test_handle_auto_reply_catches_user_is_blocked_no_counter_increment PASSED [ 33%]
   tests/test_userbot_client.py::test_handle_auto_reply_catches_peer_id_invalid_no_counter_increment PASSED [ 44%]
   tests/test_userbot_client.py::test_handle_auto_reply_catches_generic_exception_fallback PASSED [ 55%]
@@ -162,9 +163,9 @@ pytest -q
   tests/test_userbot_client.py::test_can_send_dm_enforces_max_daily_limit PASSED           [ 77%]
   tests/test_userbot_client.py::test_handle_link_extraction_end_to_end PASSED              [ 88%]
   tests/test_userbot_client.py::test_stop_userbot_client_graceful_shutdown PASSED          [100%]
-  tests/test_userbot_client.py::test_stop_userbot_client_graceful_shutdown PASSED          [ 100%]
+  tests/test_userbot_client.py::test_stop_userbot_client_graceful_shutdown PASSED          [100%]
 
-  ============================== 9 passed in 0.08s ==============================
+  ============================== 10 passed in 0.08s ==============================
   ```
 
 ---

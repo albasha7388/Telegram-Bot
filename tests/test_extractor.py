@@ -518,7 +518,7 @@ async def test_run_extraction_task_archives_only_generated_files_with_custom_nam
     doc = call_kwargs["document"]
     # Check dynamic custom filename format: {session_name}_{category}_{date}_Time_{time}.txt
     import re
-    expected_pattern = rf"^{session_name}_whatsapp_{today_str}_Time_\d{{2}}-\d{{2}}-\d{{2}}\.txt$"
+    expected_pattern = rf"^{session_name}_whatsapp_{today_str}_1\.txt$"
     assert re.match(expected_pattern, doc.filename), f"Filename '{doc.filename}' did not match pattern '{expected_pattern}'"
 
     # Check caption contains the custom filename and session

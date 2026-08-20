@@ -8,6 +8,7 @@ timers, hourly feedback metrics tracking, robust DM error handling, and link ext
 
 import asyncio
 from datetime import date
+import itertools
 from pathlib import Path
 import random
 from typing import Final, Optional
@@ -42,11 +43,14 @@ logger = setup_logger(__name__)
 # Sessions storage directory
 SESSIONS_DIR: Final[Path] = Path(__file__).resolve().parent.parent / "sessions"
 
-# Default Arabic response for genuine student inquiries
-DEFAULT_AUTO_REPLY_TEXT: Final[str] = (
-    "السلام عليكم ورحمة الله، أهلاً بك أخي الكريم.\n"
-    "بخصوص استفسارك الأكاديمي، تفضل بتزويدي بالتفاصيل وسأقوم بمساعدتك فوراً بإذن الله."
+# A/B Arabic promotional messages for genuine student inquiries
+MESSAGE_A: Final[str] = (
+    "نقدم خدمات أكاديمية وتقنية تشمل إعداد البحوث والتقارير والواجبات والمشاريع الجامعية، وتصميم العروض التقديمية والخرائط الذهنية، والتلخيص والترجمة، إلى جانب تطوير المواقع والتطبيقات والبرامج.\n\nللتواصل واتساب: https://wa.me/966502762144"
 )
+MESSAGE_B: Final[str] = (
+    "خدمات متخصصة في مشاريع نظم المعلومات وقواعد البيانات، والبرمجة والذكاء الاصطناعي، والشبكات والأمن السيبراني وتطبيقات الجوال، إضافة إلى التحليل الإحصائي والمراجعة اللغوية وإعداد خطط البحث والإطار النظري والدراسات السابقة.\n\nللتواصل واتساب: https://wa.me/966502762144"
+)
+MESSAGES_CYCLE = itertools.cycle([MESSAGE_A, MESSAGE_B])
 
 # Registry of active Pyrogram Client instances for graceful shutdown
 active_userbot_clients: dict[str, Client] = {}
@@ -203,7 +207,7 @@ async def handle_auto_reply(client: Client, message: Message) -> None:
 
     # 4. Dispatch private message wrapped in error handling for privacy/block/peer errors
     try:
-        await client.send_message(chat_id=user_id, text=DEFAULT_AUTO_REPLY_TEXT)
+        await client.send_message(chat_id=user_id, text=next(MESSAGES_CYCLE))
         increment_dm_counter(session_id)
         logger.info("Successfully sent private auto-reply to user %d.", user_id)
     except (UserPrivacyRestricted, UserIsBlocked, PeerIdInvalid) as exc:
@@ -290,6 +294,7 @@ def create_userbot_client(session_name: str) -> Client:
             api_id=API_ID,
             api_hash=API_HASH,
             in_memory=True,
+            no_updates=True,
         )
     else:
         SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
@@ -298,6 +303,7 @@ def create_userbot_client(session_name: str) -> Client:
             api_id=API_ID,
             api_hash=API_HASH,
             workdir=str(SESSIONS_DIR),
+            no_updates=True,
         )
 
     # Register handlers with Pyrogram filters and verbose logging

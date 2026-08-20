@@ -2,17 +2,17 @@
 Core utility functions for formatting and common system helpers.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 
 def format_timestamp(dt: datetime | None = None) -> str:
     """Format a datetime object to a readable timestamp string (%Y-%m-%d_Time_%H-%M-%S).
 
     Args:
-        dt: Optional datetime instance (defaults to datetime.now()).
+        dt: Optional datetime instance (defaults to datetime.now(timezone(timedelta(hours=3)))).
 
     Returns:
         str: Formatted readable timestamp string (e.g., '2026-08-19_Time_14-30-00').
     """
-    target_dt = dt or datetime.now()
+    target_dt = dt or datetime.now(timezone(timedelta(hours=3)))
     return target_dt.strftime("%Y-%m-%d_Time_%H-%M-%S")
