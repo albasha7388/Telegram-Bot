@@ -13,8 +13,9 @@ from core.logger_setup import setup_logger
 
 logger = setup_logger(__name__)
 
-# Path to the centralized keywords configuration
-KEYWORDS_FILE_PATH: Final[Path] = Path(__file__).resolve().parent.parent / "data" / "keywords.json"
+# Dynamic project root resolution and centralized keywords configuration path
+BASE_DIR: Final[Path] = Path(__file__).resolve().parent.parent
+KEYWORDS_FILE_PATH: Final[Path] = BASE_DIR / "data" / "keywords.json"
 
 # In-memory cached rules dictionary to avoid repeated disk reads
 _KEYWORDS_CACHE: dict[str, Any] | None = None
@@ -48,15 +49,32 @@ def load_keywords(force_reload: bool = False) -> dict[str, Any]:
     """
     global _KEYWORDS_CACHE
     if _KEYWORDS_CACHE is None or force_reload:
+        if not KEYWORDS_FILE_PATH.exists():
+            logger.error(
+                "Keywords file not found at dynamically resolved path: %s",
+                KEYWORDS_FILE_PATH.absolute(),
+            )
+            return {}
+
         try:
             with open(KEYWORDS_FILE_PATH, "r", encoding="utf-8") as file_handle:
                 _KEYWORDS_CACHE = json.load(file_handle)
             logger.debug("Successfully loaded intent keywords configuration into memory.")
         except OSError as exc:
-            logger.error("Failed to read keywords file at '%s': %s", KEYWORDS_FILE_PATH, exc, exc_info=True)
+            logger.error(
+                "Failed to read keywords file at '%s': %s",
+                KEYWORDS_FILE_PATH.absolute(),
+                exc,
+                exc_info=True,
+            )
             return {}
         except json.JSONDecodeError as exc:
-            logger.error("Corrupted JSON in keywords file '%s': %s", KEYWORDS_FILE_PATH, exc, exc_info=True)
+            logger.error(
+                "Corrupted JSON in keywords file '%s': %s",
+                KEYWORDS_FILE_PATH.absolute(),
+                exc,
+                exc_info=True,
+            )
             return {}
 
     return _KEYWORDS_CACHE or {}
