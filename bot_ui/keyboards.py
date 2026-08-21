@@ -315,6 +315,31 @@ def get_delete_sessions_keyboard(sessions: list[str]) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def get_joiner_source_keyboard() -> InlineKeyboardMarkup:
+    """Generate inline keyboard for Auto-Joiner source selection.
+
+    Returns:
+        InlineKeyboardMarkup: Keyboard containing source selection buttons.
+    """
+    builder = InlineKeyboardBuilder()
+
+    builder.button(
+        text="[ 📁 Upload New .txt File ]",
+        callback_data="joiner_upload",
+    )
+    builder.button(
+        text="[ 🔍 Select Extracted File ]",
+        callback_data="joiner_extracted",
+    )
+    builder.button(
+        text="🔙 Back to Menu",
+        callback_data="menu_back",
+    )
+
+    builder.adjust(1)
+    return builder.as_markup()
+
+
 def get_joiner_dates_keyboard(dates: list[str]) -> InlineKeyboardMarkup:
     """Generate an inline keyboard listing available date folders containing Telegram group link files.
 

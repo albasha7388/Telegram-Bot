@@ -87,6 +87,7 @@ async def test_run_auto_join_task_empty_links(tmp_path: Path, mocker: MockerFixt
 
     mock_bot = MagicMock()
     mock_bot.edit_message_text = AsyncMock()
+    mock_bot.send_message = AsyncMock()
 
     stats = await joiner.run_auto_join_task(
         session_name="test_session",
@@ -120,6 +121,7 @@ async def test_run_auto_join_task_successful_joins(tmp_path: Path, mocker: Mocke
 
     mock_bot = MagicMock()
     mock_bot.edit_message_text = AsyncMock()
+    mock_bot.send_message = AsyncMock()
 
     stats = await joiner.run_auto_join_task(
         session_name="test_session",
@@ -160,6 +162,7 @@ async def test_run_auto_join_task_user_already_participant(tmp_path: Path, mocke
 
     mock_bot = MagicMock()
     mock_bot.edit_message_text = AsyncMock()
+    mock_bot.send_message = AsyncMock()
 
     stats = await joiner.run_auto_join_task(
         session_name="test_session",
@@ -194,6 +197,7 @@ async def test_run_auto_join_task_flood_wait_retries_and_succeeds(tmp_path: Path
 
     mock_bot = MagicMock()
     mock_bot.edit_message_text = AsyncMock()
+    mock_bot.send_message = AsyncMock()
 
     stats = await joiner.run_auto_join_task(
         session_name="test_session",
@@ -206,7 +210,7 @@ async def test_run_auto_join_task_flood_wait_retries_and_succeeds(tmp_path: Path
     assert stats["total"] == 1
     assert stats["joined"] == 1
     assert mock_client.join_chat.await_count == 2
-    mock_sleep.assert_any_await(15)  # 10 + 5
+    mock_sleep.assert_any_await(20)  # 10 + 10
 
 
 @pytest.mark.asyncio
@@ -226,6 +230,7 @@ async def test_run_auto_join_task_expired_and_invalid_links(tmp_path: Path, mock
 
     mock_bot = MagicMock()
     mock_bot.edit_message_text = AsyncMock()
+    mock_bot.send_message = AsyncMock()
 
     stats = await joiner.run_auto_join_task(
         session_name="test_session",
@@ -271,6 +276,7 @@ async def test_run_auto_join_task_failure_logs_verbose_warning(tmp_path: Path, m
 
     mock_bot = MagicMock()
     mock_bot.edit_message_text = AsyncMock()
+    mock_bot.send_message = AsyncMock()
 
     stats = await joiner.run_auto_join_task(
         session_name="test_session",
@@ -283,10 +289,14 @@ async def test_run_auto_join_task_failure_logs_verbose_warning(tmp_path: Path, m
     assert stats["total"] == 5
     assert stats["joined"] == 0
     assert stats["failed"] == 5
-    # Ensure logger.warning was called for every failure with verbose format
+    # Ensure logger.warning was called for every failure with appropriate format
     assert mock_logger_warning.call_count == 5
-    for call_item in mock_logger_warning.call_args_list:
-        assert "Telegram API says ->" in call_item[0][0]
+    messages = [call_item[0][0] for call_item in mock_logger_warning.call_args_list]
+    assert "Pyrogram RPCError when joining '%s': %s" in messages[0]
+    assert "Pyrogram RPCError when joining '%s': %s" in messages[1]
+    assert "Link '%s' is dead (Expired/Invalid Hash)" in messages[2]
+    assert "Link '%s' is dead (Expired/Invalid Hash)" in messages[3]
+    assert "Pyrogram RPCError when joining '%s': %s" in messages[4]
 
 
 @pytest.mark.asyncio
@@ -307,6 +317,7 @@ async def test_run_auto_join_task_unexpected_error_logs_warning(tmp_path: Path, 
 
     mock_bot = MagicMock()
     mock_bot.edit_message_text = AsyncMock()
+    mock_bot.send_message = AsyncMock()
 
     stats = await joiner.run_auto_join_task(
         session_name="test_session",
@@ -320,7 +331,7 @@ async def test_run_auto_join_task_unexpected_error_logs_warning(tmp_path: Path, 
     assert stats["joined"] == 0
     assert stats["failed"] == 1
     mock_logger_warning.assert_called_once()
-    assert "Telegram API says -> Unexpected network failure" in mock_logger_warning.call_args[0][0]
+    assert "Failed to join '%s': %s" in mock_logger_warning.call_args[0][0]
 
 
 @pytest.mark.asyncio
@@ -430,9 +441,12 @@ async def test_run_auto_join_task_completion_refreshes_main_menu(tmp_path: Path,
     # Completion UI displayed
     mock_bot.edit_message_text.assert_awaited()
     assert "Auto-Joiner Task Completed!" in mock_bot.edit_message_text.call_args.kwargs["text"]
-    # Fresh main menu dispatched
-    mock_bot.send_message.assert_awaited_once()
-    assert "Hybrid Telegram Control Panel" in mock_bot.send_message.call_args.kwargs["text"]
+    
+    # Shift completion and Fresh main menu dispatched
+    assert mock_bot.send_message.await_count == 2
+    calls = mock_bot.send_message.call_args_list
+    assert "✅ Auto-Join Shift Completed" in calls[0].kwargs["text"]
+    assert "Hybrid Telegram Control Panel" in calls[1].kwargs["text"]
 
 
 @pytest.mark.asyncio

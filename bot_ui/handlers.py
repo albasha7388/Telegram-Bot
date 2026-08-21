@@ -9,6 +9,7 @@ Safely handles expired callback queries (TelegramBadRequest) and validates activ
 
 from datetime import datetime, timezone
 from pathlib import Path
+import time
 from typing import Any, Final, Optional
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
@@ -42,7 +43,9 @@ from core.file_manager import (
 )
 from core.logger_setup import setup_logger
 from core.process_manager import (
+    get_joiner_sleep_state,
     is_extraction_running,
+    is_joiner_running,
     is_userbot_running,
     start_extraction_task,
     start_userbot_task,
@@ -703,11 +706,28 @@ async def system_stats_callback_handler(callback: CallbackQuery) -> None:
     tg_folder_count = stats.get("telegram_folders", 0)
     total_count = stats.get("total", 0)
 
+    # Joiner Stats Display
+    joiner_on = is_joiner_running(active_session)
+    if joiner_on:
+        sleep_state = get_joiner_sleep_state(active_session or "")
+        if sleep_state and sleep_state["until"] > time.time():
+            import math
+            rem_minutes = math.ceil((sleep_state["until"] - time.time()) / 60)
+            hrs = rem_minutes // 60
+            mins = rem_minutes % 60
+            reason = "Yielding to conflict" if sleep_state["conflict"] else "Sleeping"
+            joiner_display = f"⏳ <b>{reason} (Resumes in {hrs}h {mins}m)</b>"
+        else:
+            joiner_display = "🟢 <b>RUNNING (Processing) 🚀</b>"
+    else:
+        joiner_display = "⚪ <b>IDLE ⏸️</b>"
+
     stats_text = (
         "📊 <b>System Statistics Dashboard</b>\n\n"
         f"👤 <b>Active Session:</b> {session_display}\n"
         f"🤖 <b>Auto-Reply Status:</b> {userbot_display}\n"
         f"🔍 <b>Extractor Status:</b> {extractor_display}\n"
+        f"🚪 <b>Auto-Join Status:</b> {joiner_display}\n"
         f"📩 <b>Auto-Replies Sent Today:</b> <code>{dms_sent_today}/{MAX_DAILY_DMS}</code>\n\n"
         "📂 <b>Database Storage Breakdown:</b>\n"
         f"├ 📱 WhatsApp: <b>{wa_count}</b>\n"

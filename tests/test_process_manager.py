@@ -25,9 +25,24 @@ def cleanup_active_tasks() -> None:
         if not task.done():
             task.cancel()
     process_manager.active_joiners.clear()
+    process_manager.joiner_sleep_state.clear()
 
     from userbot.client import active_userbot_clients
     active_userbot_clients.clear()
+
+
+# --- 1. Joiner Sleep State Tests ---
+
+def test_joiner_sleep_state_set_and_get() -> None:
+    """Test getting and setting the sleep state for the Auto-Joiner."""
+    assert process_manager.get_joiner_sleep_state("acc1") is None
+    
+    process_manager.set_joiner_sleep_state("acc1", 1234567.8, conflict=True)
+    state = process_manager.get_joiner_sleep_state("acc1")
+    assert state == {"until": 1234567.8, "conflict": True}
+    
+    process_manager.set_joiner_sleep_state("acc1", 0)
+    assert process_manager.get_joiner_sleep_state("acc1") is None
 
 
 # --- 1. Userbot Task Tests ---

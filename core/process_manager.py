@@ -19,6 +19,36 @@ active_tasks: dict[str, asyncio.Task[Any]] = {}
 active_extractions: dict[str, asyncio.Task[Any]] = {}
 active_joiners: dict[str, asyncio.Task[Any]] = {}
 
+# Registry mapping session names to their active sleep state: {"until": float, "conflict": bool}
+joiner_sleep_state: dict[str, dict[str, Any]] = {}
+
+
+def set_joiner_sleep_state(session_name: str, until: float, conflict: bool = False) -> None:
+    """Set the sleep state for a session's Auto-Joiner.
+    
+    Args:
+        session_name: Session identifier.
+        until: Epoch timestamp when the sleep ends (0 to clear).
+        conflict: True if yielding due to conflict.
+    """
+    if until <= 0:
+        joiner_sleep_state.pop(session_name, None)
+    else:
+        joiner_sleep_state[session_name] = {"until": until, "conflict": conflict}
+
+
+def get_joiner_sleep_state(session_name: str) -> Optional[dict[str, Any]]:
+    """Get the current sleep state for a session's Auto-Joiner.
+    
+    Args:
+        session_name: Session identifier.
+        
+    Returns:
+        dict with 'until' and 'conflict' or None if not sleeping.
+    """
+    return joiner_sleep_state.get(session_name)
+
+
 
 def is_joiner_running(session_name: Optional[str]) -> bool:
     """Check whether a background auto-joiner task is currently active for a session.

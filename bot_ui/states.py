@@ -31,6 +31,7 @@ class JoinerState(StatesGroup):
 
     selecting_date = State()
     selecting_file = State()
+    waiting_for_upload = State()
 
 
 class DownloadState(StatesGroup):

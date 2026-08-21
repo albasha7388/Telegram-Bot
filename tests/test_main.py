@@ -79,7 +79,8 @@ async def test_main_polling_loop_invocation(mocker: MockerFixture) -> None:
     mocker.patch("main.create_bot", return_value=mock_bot)
     mocker.patch("main.create_dispatcher", return_value=mock_dp)
     mock_start_dummy = mocker.patch("main.start_dummy_server", return_value=None)
-    mocker.patch("main.ADMIN_ID", 123456789)
+    mocker.patch.dict("os.environ", {"ADMIN_ID": "123456789"})
+    mock_send_main_menu = mocker.patch("bot_ui.handlers.send_main_menu", new_callable=AsyncMock)
 
     await main_app.main()
 
@@ -90,6 +91,7 @@ async def test_main_polling_loop_invocation(mocker: MockerFixture) -> None:
         text="🔄 <b>System Update Complete</b>\n\nThe bot has been successfully restarted, updated, and is ready for new tasks.",
         parse_mode="HTML",
     )
+    mock_send_main_menu.assert_awaited_once_with(bot=mock_bot, chat_id=123456789)
     mock_dp.start_polling.assert_awaited_once_with(mock_bot, drop_pending_updates=True)
     mock_scheduler.shutdown.assert_called_once_with(wait=False)
     mock_bot.session.close.assert_awaited_once()
@@ -110,7 +112,7 @@ async def test_main_startup_notification_exception_handled(mocker: MockerFixture
     mocker.patch("main.create_bot", return_value=mock_bot)
     mocker.patch("main.create_dispatcher", return_value=mock_dp)
     mocker.patch("main.start_dummy_server", return_value=None)
-    mocker.patch("main.ADMIN_ID", 123456789)
+    mocker.patch.dict("os.environ", {"ADMIN_ID": "123456789"})
 
     await main_app.main()
 

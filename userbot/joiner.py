@@ -6,6 +6,8 @@ with rate limit compliance, anti-spam spacing (7s), FloodWait auto-retry, and li
 """
 
 import asyncio
+import random
+import time
 from pathlib import Path
 import re
 from typing import Any, Final, Optional, Union
@@ -18,6 +20,7 @@ from pyrogram.errors import (
     PeerIdInvalid,
     RPCError,
     UserAlreadyParticipant,
+    UserBannedInChannel,
     UserDeactivated,
     UsernameInvalid,
     UsernameNotOccupied,
@@ -203,75 +206,132 @@ async def run_auto_join_task(
         await client.start()
         logger.info("Auto-Joiner started Pyrogram client '%s' for '%s'", session_name, path_obj.name)
 
-        for index, link in enumerate(links, 1):
-            target_chat = sanitize_chat_target(link)
-            while True:
-                try:
-                    logger.debug("Joining '%s' (as '%s') via session '%s' (%d/%d)...", link, target_chat, session_name, index, stats["total"])
-                    await client.join_chat(target_chat)
-                    stats["joined"] += 1
-                    logger.info("Successfully joined '%s' on session '%s' (%d/%d)", link, session_name, index, stats["total"])
-                    await asyncio.sleep(JOIN_ANTI_SPAM_SLEEP_SECONDS)
-                    break
-                except UserAlreadyParticipant:
-                    stats["skipped_already_in"] += 1
-                    logger.info("Skipped '%s': already a participant on session '%s'", link, session_name)
-                    break
-                except InviteRequestSent:
-                    stats["sent_request"] += 1
-                    logger.info("Join request sent for '%s' on session '%s' (%d/%d)", link, session_name, index, stats["total"])
-                    await asyncio.sleep(JOIN_ANTI_SPAM_SLEEP_SECONDS)
-                    break
-                except FloodWait as exc:
-                    wait_seconds = exc.value + 5
-                    logger.warning("FloodWait of %d seconds triggered when joining '%s'. Sleeping %ds before retry.", exc.value, link, wait_seconds)
-                    flood_text = (
-                        "⚠️ <b>Telegram Rate Limit (FloodWait)</b>\n\n"
-                        f"Telegram requested waiting for <b>{exc.value}</b> seconds.\n"
-                        f"Sleeping for <b>{wait_seconds}</b>s before retrying <code>{link}</code>..."
-                    )
-                    if bot and admin_chat_id and message_id:
-                        try:
-                            await bot.edit_message_text(
-                                chat_id=admin_chat_id,
-                                message_id=message_id,
-                                text=flood_text,
-                                parse_mode="HTML",
-                                reply_markup=get_joiner_progress_keyboard(session_name),
-                            )
-                        except Exception as ui_exc:
-                            logger.debug("Failed editing UI on FloodWait: %s", ui_exc)
-                    await asyncio.sleep(wait_seconds)
-                    # Loop continues without break to retry this exact same link!
-                except Exception as exc:
-                    stats["failed"] += 1
-                    logger.warning(f"Failed to join '{link}': Telegram API says -> {exc}")
-                    break
+        from core.process_manager import is_userbot_running, is_extraction_running, set_joiner_sleep_state
 
-            # Send live progress update every 3 processed links or on completion
-            processed = stats["joined"] + stats["sent_request"] + stats["skipped_already_in"] + stats["failed"]
-            if processed % 3 == 0 or processed == stats["total"]:
-                progress_text = (
-                    "🚀 <b>Auto-Joiner Progress</b>\n"
-                    f"├ Target: <code>{path_obj.name}</code>\n"
-                    f"├ Joined: <b>{stats['joined']}</b>\n"
-                    f"├ Requests Sent: <b>{stats['sent_request']}</b>\n"
-                    f"├ Skipped (Already in): <b>{stats['skipped_already_in']}</b>\n"
-                    f"└ Failed/Expired: <b>{stats['failed']}</b>\n"
-                    "━━━━━━━━━━━━\n"
-                    f"⏳ Progress: <b>{processed}/{stats['total']}</b>"
-                )
-                if bot and admin_chat_id and message_id:
+        while links:
+            if is_userbot_running(session_name) or is_extraction_running(session_name):
+                sleep_time = random.randint(3600, 7200)
+                set_joiner_sleep_state(session_name, time.time() + sleep_time, conflict=True)
+                logger.info("Conflict detected: Another task is currently active for this session. Delaying join task for another full cycle (%ds).", sleep_time)
+                await asyncio.sleep(sleep_time)
+                set_joiner_sleep_state(session_name, 0, False)
+                continue
+
+            batch = links[:4]
+            for link in batch:
+                target_chat = sanitize_chat_target(link)
+                while True:
                     try:
-                        await bot.edit_message_text(
-                            chat_id=admin_chat_id,
-                            message_id=message_id,
-                            text=progress_text,
-                            parse_mode="HTML",
-                            reply_markup=get_joiner_progress_keyboard(session_name),
+                        logger.debug("Joining '%s' (as '%s') via session '%s'...", link, target_chat, session_name)
+                        await client.join_chat(target_chat)
+                        stats["joined"] += 1
+                        logger.info("Successfully joined '%s' on session '%s'", link, session_name)
+                        links.remove(link)
+                        await asyncio.sleep(JOIN_ANTI_SPAM_SLEEP_SECONDS)
+                        break
+                    except UserAlreadyParticipant:
+                        stats["skipped_already_in"] += 1
+                        logger.info("Skipped '%s': already a participant on session '%s'", link, session_name)
+                        links.remove(link)
+                        break
+                    except InviteRequestSent:
+                        stats["sent_request"] += 1
+                        logger.info("Join request sent for '%s' on session '%s'", link, session_name)
+                        links.remove(link)
+                        await asyncio.sleep(JOIN_ANTI_SPAM_SLEEP_SECONDS)
+                        break
+                    except (InviteHashExpired, InviteHashInvalid):
+                        stats["failed"] += 1
+                        logger.warning("Link '%s' is dead (Expired/Invalid Hash). Removing from queue.", link)
+                        links.remove(link)
+                        break
+                    except UserBannedInChannel:
+                        stats["failed"] += 1
+                        logger.warning("Banned in '%s'. Removing from queue.", link)
+                        links.remove(link)
+                        break
+                    except FloodWait as exc:
+                        wait_seconds = exc.value + 10
+                        logger.warning("FloodWait of %d seconds triggered when joining '%s'. Sleeping %ds before retry.", exc.value, link, wait_seconds)
+                        flood_text = (
+                            "⚠️ <b>Telegram Rate Limit (FloodWait)</b>\n\n"
+                            f"Telegram requested waiting for <b>{exc.value}</b> seconds.\n"
+                            f"Sleeping for <b>{wait_seconds}</b>s before retrying <code>{link}</code>..."
                         )
-                    except Exception as ui_exc:
-                        logger.debug("Failed updating progress UI: %s", ui_exc)
+                        if bot and admin_chat_id and message_id:
+                            try:
+                                await bot.edit_message_text(
+                                    chat_id=admin_chat_id,
+                                    message_id=message_id,
+                                    text=flood_text,
+                                    parse_mode="HTML",
+                                    reply_markup=get_joiner_progress_keyboard(session_name),
+                                )
+                            except Exception as ui_exc:
+                                logger.debug("Failed editing UI on FloodWait: %s", ui_exc)
+                        await asyncio.sleep(wait_seconds)
+                        # Loop continues without break to retry this exact same link!
+                    except RPCError as exc:
+                        stats["failed"] += 1
+                        logger.warning("Pyrogram RPCError when joining '%s': %s", link, exc)
+                        links.remove(link)
+                        break
+                    except Exception as exc:
+                        stats["failed"] += 1
+                        logger.warning("Failed to join '%s': %s", link, exc)
+                        links.remove(link)
+                        break
+
+            # Send live progress update
+            processed = stats["joined"] + stats["sent_request"] + stats["skipped_already_in"] + stats["failed"]
+            progress_text = (
+                "🚀 <b>Auto-Joiner Progress</b>\n"
+                f"├ Target: <code>{path_obj.name}</code>\n"
+                f"├ Joined: <b>{stats['joined']}</b>\n"
+                f"├ Requests Sent: <b>{stats['sent_request']}</b>\n"
+                f"├ Skipped (Already in): <b>{stats['skipped_already_in']}</b>\n"
+                f"└ Failed/Expired: <b>{stats['failed']}</b>\n"
+                "━━━━━━━━━━━━\n"
+                f"⏳ Progress: <b>{processed}/{stats['total']}</b>\n"
+                f"📝 Remaining in queue: <b>{len(links)}</b>"
+            )
+            if bot and admin_chat_id and message_id:
+                try:
+                    await bot.edit_message_text(
+                        chat_id=admin_chat_id,
+                        message_id=message_id,
+                        text=progress_text,
+                        parse_mode="HTML",
+                        reply_markup=get_joiner_progress_keyboard(session_name),
+                    )
+                except Exception as ui_exc:
+                    logger.debug("Failed updating progress UI: %s", ui_exc)
+            
+            # Save progress to file
+            try:
+                with open(path_obj, "w", encoding="utf-8") as f:
+                    for remaining_link in links:
+                        f.write(remaining_link + "\n")
+                logger.debug("Saved %d remaining links to '%s'", len(links), path_obj.name)
+            except OSError as io_err:
+                logger.error("Failed writing updated remaining links to '%s': %s", path_obj.name, io_err)
+
+            if links:
+                sleep_time = random.randint(3600, 7200)
+                set_joiner_sleep_state(session_name, time.time() + sleep_time, conflict=False)
+                logger.info("Batch processed. Sleeping for %d seconds before next batch.", sleep_time)
+                await asyncio.sleep(sleep_time)
+                set_joiner_sleep_state(session_name, 0, False)
+
+        # Send Shift Completion Notification to Admin
+        if bot and admin_chat_id:
+            try:
+                await bot.send_message(
+                    chat_id=admin_chat_id,
+                    text="✅ Auto-Join Shift Completed for this session. All links processed.",
+                )
+            except Exception as notify_exc:
+                logger.debug("Failed sending shift completion notification: %s", notify_exc)
 
         # Final completion UI update
         completion_text = (

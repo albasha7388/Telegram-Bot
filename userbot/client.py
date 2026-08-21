@@ -9,9 +9,10 @@ timers, hourly feedback metrics tracking, robust DM error handling, and link ext
 import asyncio
 from datetime import date
 import itertools
+import logging
 from pathlib import Path
 import random
-from typing import Final, Optional
+from typing import Any, Final, Optional
 
 from pyrogram import Client, filters
 from pyrogram.errors import (
@@ -39,6 +40,51 @@ from validators.telegram_validator import extract_telegram_links
 from validators.whatsapp_validator import extract_whatsapp_links, validate_whatsapp_link
 
 logger = setup_logger(__name__)
+
+
+class SuppressPeerIdInvalidFilter(logging.Filter):
+    """Logging filter to suppress noisy 'Peer id invalid' errors/exceptions from Pyrogram update dispatcher."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """Filter out log records containing 'Peer id invalid' or 'PeerIdInvalid'.
+
+        Args:
+            record: The incoming log record to inspect.
+
+        Returns:
+            bool: False if record contains 'Peer id invalid', True otherwise.
+        """
+        try:
+            if record.exc_info and record.exc_info[1]:
+                exc_str = str(record.exc_info[1])
+                if "Peer id invalid" in exc_str or "PeerIdInvalid" in exc_str:
+                    return False
+            msg = record.getMessage()
+            if "Peer id invalid" in msg or "PeerIdInvalid" in msg:
+                return False
+        except Exception:
+            pass
+        return True
+
+
+def apply_peer_id_invalid_filter() -> None:
+    """Attach SuppressPeerIdInvalidFilter to Pyrogram loggers and the module logger."""
+    peer_filter = SuppressPeerIdInvalidFilter()
+    for logger_name in (
+        "pyrogram",
+        "pyrogram.client",
+        "pyrogram.session",
+        "pyrogram.session.session",
+        "pyrogram.dispatcher",
+        "userbot.client",
+    ):
+        target_logger = logging.getLogger(logger_name)
+        if not any(isinstance(f, SuppressPeerIdInvalidFilter) for f in target_logger.filters):
+            target_logger.addFilter(peer_filter)
+
+
+# Initialize the filter on module load to suppress background noise in monitor mode
+apply_peer_id_invalid_filter()
 
 # Sessions storage directory
 SESSIONS_DIR: Final[Path] = Path(__file__).resolve().parent.parent / "sessions"
@@ -216,6 +262,15 @@ async def handle_auto_reply(client: Client, message: Message) -> None:
             user_id,
             exc,
         )
+    except ValueError as exc:
+        if "Peer id invalid" in str(exc):
+            logger.warning(
+                "Failed to DM user %d: Peer id invalid (%s).",
+                user_id,
+                exc,
+            )
+        else:
+            logger.error("ValueError sending DM to user %d: %s", user_id, exc, exc_info=True)
     except FloodWait as exc:
         logger.warning(
             "FloodWait encountered while sending DM to user %d: wait %ds.",
@@ -229,12 +284,19 @@ async def handle_auto_reply(client: Client, message: Message) -> None:
             exc,
         )
     except Exception as exc:
-        logger.error(
-            "Unexpected error sending DM to user %d: %s",
-            user_id,
-            exc,
-            exc_info=True,
-        )
+        if "Peer id invalid" in str(exc):
+            logger.warning(
+                "Failed to DM user %d: Peer id invalid (%s).",
+                user_id,
+                exc,
+            )
+        else:
+            logger.error(
+                "Unexpected error sending DM to user %d: %s",
+                user_id,
+                exc,
+                exc_info=True,
+            )
 
 
 async def handle_link_extraction(client: Client, message: Message) -> None:
@@ -277,45 +339,61 @@ async def handle_link_extraction(client: Client, message: Message) -> None:
             logger.error("Failed validating/saving WhatsApp link '%s': %s", wa_link, exc)
 
 
-def create_userbot_client(session_name: str) -> Client:
+def create_userbot_client(session_name: str, enable_listening: bool = False) -> Client:
     """Instantiate and configure a Pyrogram userbot client with all event handlers registered.
+
+    Default behavior strictly sets `no_updates=True` to keep the client completely deaf
+    to incoming updates (for batch/extraction/join tasks). Passing `enable_listening=True`
+    removes `no_updates=True` to activate MTProto update polling for the Monitoring service.
 
     Args:
         session_name: The session file name (without .session extension).
+        enable_listening: If True, enables incoming updates for monitoring/auto-reply.
+                          Defaults to False (no_updates=True).
 
     Returns:
         Client: Configured Pyrogram client.
     """
+    client_kwargs: dict[str, Any] = {
+        "name": session_name,
+        "api_id": API_ID,
+        "api_hash": API_HASH,
+    }
+
+    if not enable_listening:
+        client_kwargs["no_updates"] = True
+
     session_str = get_session_string(session_name)
     if session_str:
-        app = Client(
-            name=session_name,
-            session_string=session_str,
-            api_id=API_ID,
-            api_hash=API_HASH,
-            in_memory=True,
-            no_updates=True,
-        )
+        client_kwargs["session_string"] = session_str
+        client_kwargs["in_memory"] = True
     else:
         SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
-        app = Client(
-            name=session_name,
-            api_id=API_ID,
-            api_hash=API_HASH,
-            workdir=str(SESSIONS_DIR),
-            no_updates=True,
-        )
+        client_kwargs["workdir"] = str(SESSIONS_DIR)
+
+    app = Client(**client_kwargs)
 
     # Register handlers with Pyrogram filters and verbose logging
     @app.on_message(filters.group & filters.text)
     async def _group_message_listener(client: Client, message: Message) -> None:
-        global hourly_scanned_count
-        hourly_scanned_count += 1
-        chat_title = message.chat.title or "Unknown Group"
-        chat_id = message.chat.id
-        logger.info(f"📩 New message detected in group: {chat_title} (ID: {chat_id})")
-        await handle_auto_reply(client, message)
-        await handle_link_extraction(client, message)
+        try:
+            global hourly_scanned_count
+            hourly_scanned_count += 1
+            chat_title = message.chat.title or "Unknown Group"
+            chat_id = message.chat.id
+            logger.info(f"📩 New message detected in group: {chat_title} (ID: {chat_id})")
+            await handle_auto_reply(client, message)
+            await handle_link_extraction(client, message)
+        except (PeerIdInvalid, ValueError) as exc:
+            if "Peer id invalid" in str(exc) or isinstance(exc, PeerIdInvalid):
+                logger.debug("Suppressed PeerIdInvalid in group message listener: %s", exc)
+                return
+            raise
+        except Exception as exc:
+            if "Peer id invalid" in str(exc):
+                logger.debug("Suppressed PeerIdInvalid in group message listener: %s", exc)
+                return
+            logger.error("Error in group message listener: %s", exc, exc_info=True)
 
     return app
 
@@ -323,13 +401,14 @@ def create_userbot_client(session_name: str) -> Client:
 async def run_userbot(session_name: str) -> None:
     """Initialize and start the MTProto userbot client for a designated session.
 
+    Explicitly enables incoming update listening (enable_listening=True) for monitoring mode.
     Keeps the background task alive until explicitly stopped or cancelled.
 
     Args:
         session_name: Target session identifier.
     """
     logger.info("Starting Pyrogram Userbot with session '%s'...", session_name)
-    app = create_userbot_client(session_name)
+    app = create_userbot_client(session_name, enable_listening=True)
     active_userbot_clients[session_name] = app
     await app.start()
     logger.info("Userbot session '%s' started successfully.", session_name)

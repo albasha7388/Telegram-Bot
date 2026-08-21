@@ -80,16 +80,28 @@ async def main() -> None:
     scheduler = start_scheduler(bot=bot, admin_chat_id=ADMIN_ID)
 
     # Startup Notification Hook
-    if ADMIN_ID:
+    admin_id_str = os.getenv("ADMIN_ID")
+    if not admin_id_str:
+        logger.error("ADMIN_ID is missing from environment variables.")
+    else:
         try:
-            await bot.send_message(
-                chat_id=ADMIN_ID,
-                text="🔄 <b>System Update Complete</b>\n\nThe bot has been successfully restarted, updated, and is ready for new tasks.",
-                parse_mode="HTML",
-            )
-            logger.info("Sent system update startup notification to admin (ID: %s).", ADMIN_ID)
-        except Exception as exc:
-            logger.warning("Could not send startup notification to admin: %s", exc)
+            admin_id_int = int(admin_id_str)
+        except ValueError:
+            logger.error("Failed to cast ADMIN_ID to integer.")
+            admin_id_int = None
+
+        if admin_id_int is not None:
+            try:
+                await bot.send_message(
+                    chat_id=admin_id_int,
+                    text="🔄 <b>System Update Complete</b>\n\nThe bot has been successfully restarted, updated, and is ready for new tasks.",
+                    parse_mode="HTML",
+                )
+                from bot_ui.handlers import send_main_menu
+                await send_main_menu(bot=bot, chat_id=admin_id_int)
+                logger.info("Startup notification and main menu successfully delivered to Admin.")
+            except Exception as e:
+                logger.error(f"Failed to send startup sequence to admin: {e}")
 
     logger.info("Starting Aiogram polling loop for Control UI...")
     try:

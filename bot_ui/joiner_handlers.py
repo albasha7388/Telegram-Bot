@@ -12,7 +12,7 @@ from typing import Optional
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, Message
 
 from bot_ui.handlers import get_user_active_session, safe_callback_answer
 from bot_ui.keyboards import (
@@ -20,6 +20,7 @@ from bot_ui.keyboards import (
     get_joiner_dates_keyboard,
     get_joiner_files_keyboard,
     get_joiner_progress_keyboard,
+    get_joiner_source_keyboard,
     get_main_menu,
 )
 from bot_ui.states import JoinerState
@@ -120,11 +121,11 @@ def get_group_files_for_date(date_str: str, session_name: Optional[str] = None) 
     return [f[1] for f in files]
 
 
-# --- Step 1: Browse Available Dates ---
+# --- Step 1: Source Selection ---
 
 @router.callback_query(F.data == "menu_auto_join")
 async def start_auto_join_handler(callback: CallbackQuery, state: FSMContext) -> None:
-    """Validate active session, retrieve available dates, and render date selection keyboard.
+    """Validate active session and prompt user to select the source of links.
 
     Args:
         callback: Incoming callback query.
@@ -149,6 +150,125 @@ async def start_auto_join_handler(callback: CallbackQuery, state: FSMContext) ->
             show_alert=True,
         )
         return
+
+    prompt_text = (
+        "🚪 <b>Auto-Joiner: Source Selection</b>\n\n"
+        f"🟢 Active Account: <code>{active_session}</code>\n\n"
+        "How would you like to provide the list of links?"
+    )
+
+    if callback.message:
+        try:
+            await callback.message.edit_text(
+                text=prompt_text,
+                parse_mode="HTML",
+                reply_markup=get_joiner_source_keyboard(),
+            )
+        except TelegramBadRequest as exc:
+            logger.debug("Failed editing message on start auto-join: %s", exc)
+
+    await safe_callback_answer(callback)
+    logger.info("User %d opened Auto-Joiner source selection for session '%s'.", user_id, active_session)
+
+
+@router.callback_query(F.data == "joiner_upload")
+async def joiner_upload_file_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Prompt user to upload a new .txt file.
+
+    Args:
+        callback: Incoming callback query.
+        state: FSM execution context.
+    """
+    user_id = callback.from_user.id
+    active_session = get_user_active_session(user_id)
+    await state.set_state(JoinerState.waiting_for_upload)
+    await state.update_data(session_name=active_session)
+
+    prompt_text = (
+        "📁 <b>Auto-Joiner: Upload File</b>\n\n"
+        f"🟢 Active Account: <code>{active_session}</code>\n\n"
+        "Please send the <code>.txt</code> file containing the Telegram links (one link per line)."
+    )
+
+    if callback.message:
+        try:
+            await callback.message.edit_text(
+                text=prompt_text,
+                parse_mode="HTML",
+                reply_markup=get_back_keyboard(),
+            )
+        except TelegramBadRequest as exc:
+            logger.debug("Failed editing message on upload prompt: %s", exc)
+
+    await safe_callback_answer(callback)
+
+
+@router.message(JoinerState.waiting_for_upload, F.document)
+async def process_file_upload_handler(message: Message, state: FSMContext) -> None:
+    """Handle the uploaded .txt file and launch the Auto-Joiner.
+
+    Args:
+        message: The incoming message with the document.
+        state: FSM execution context.
+    """
+    if not message.document.file_name.endswith(".txt"):
+        await message.answer("⚠️ Please upload a valid `.txt` file.")
+        return
+
+    user_id = message.from_user.id if message.from_user else 0
+    state_data = await state.get_data()
+    session_name = state_data.get("session_name") or get_user_active_session(user_id)
+
+    if not session_name:
+        await message.answer("⚠️ Active session lost. Please restart.")
+        await state.clear()
+        return
+
+    target_dir = LINKS_DIR / session_name / "uploaded"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    file_path = target_dir / message.document.file_name
+
+    await message.bot.download(message.document, destination=file_path)
+    await state.clear()
+
+    start_text = (
+        "⏳ <b>Starting Auto-Joiner Engine...</b>\n\n"
+        f"📁 Uploaded File: <code>{message.document.file_name}</code>\n"
+        f"🟢 Account: <code>{session_name}</code>\n\n"
+        "<i>Connecting MTProto client and starting joining process...</i>"
+    )
+
+    status_msg = await message.answer(
+        text=start_text,
+        parse_mode="HTML",
+        reply_markup=get_joiner_progress_keyboard(session_name),
+    )
+
+    logger.info("User %d launched Auto-Joiner on session '%s' with uploaded file '%s'.", user_id, session_name, file_path)
+
+    task = asyncio.create_task(
+        run_auto_join_task(
+            session_name=session_name,
+            file_path=str(file_path),
+            bot=message.bot,
+            admin_chat_id=user_id,
+            message_id=status_msg.message_id,
+        ),
+        name=f"joiner_{session_name}",
+    )
+    active_joiners[session_name] = task
+
+
+@router.callback_query(F.data == "joiner_extracted")
+async def joiner_select_extracted_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """List available dates for extracted files.
+
+    Args:
+        callback: Incoming callback query.
+        state: FSM execution context.
+    """
+    user_id = callback.from_user.id
+    active_session = get_user_active_session(user_id)
 
     dates = get_available_group_dates(session_name=active_session)
     if not dates:
@@ -182,7 +302,6 @@ async def start_auto_join_handler(callback: CallbackQuery, state: FSMContext) ->
 
     await safe_callback_answer(callback)
     logger.info("User %d opened Auto-Joiner date selection for session '%s'.", user_id, active_session)
-
 
 # --- Step 2: Browse Files for Selected Date ---
 

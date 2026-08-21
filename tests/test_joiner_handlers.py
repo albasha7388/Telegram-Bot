@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pytest_mock import MockerFixture
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Chat, User
+from aiogram.types import CallbackQuery, Chat, User, Message, Document
 
 from bot_ui import joiner_handlers
 from bot_ui.states import JoinerState
@@ -92,31 +92,83 @@ async def test_start_auto_join_handler_no_active_session(
 
 
 @pytest.mark.asyncio
-async def test_start_auto_join_handler_no_dates_found(
+async def test_start_auto_join_handler_renders_source_selection(
     mock_user: User, mock_chat: Chat, mocker: MockerFixture
 ) -> None:
-    """Test start auto-join alerts user when no date folders contain link files."""
+    """Test start auto-join prompts for source selection instead of rendering dates directly."""
     mocker.patch("bot_ui.joiner_handlers.get_user_active_session", return_value="acc1")
-    mocker.patch("bot_ui.joiner_handlers.get_available_group_dates", return_value=[])
 
     mock_state = MagicMock(spec=FSMContext)
     mock_callback = MagicMock(spec=CallbackQuery)
     mock_callback.from_user = mock_user
+    mock_callback.message = MagicMock()
+    mock_callback.message.edit_text = AsyncMock()
     mock_callback.answer = AsyncMock()
 
     await joiner_handlers.start_auto_join_handler(mock_callback, mock_state)
 
-    mock_callback.answer.assert_awaited_once_with(
-        "📭 No Telegram group links found for session 'acc1' in storage yet. Extract some links first!",
-        show_alert=True,
-    )
+    mock_callback.message.edit_text.assert_awaited_once()
+    args, kwargs = mock_callback.message.edit_text.call_args
+    assert "Auto-Joiner: Source Selection" in kwargs["text"]
+    assert kwargs["reply_markup"] is not None
 
 
 @pytest.mark.asyncio
-async def test_start_auto_join_handler_success_renders_dates(
+async def test_joiner_upload_file_handler(
     mock_user: User, mock_chat: Chat, mocker: MockerFixture
 ) -> None:
-    """Test start auto-join sets selecting_date state and renders dates keyboard."""
+    """Test joiner upload handler sets waiting_for_upload state."""
+    mocker.patch("bot_ui.joiner_handlers.get_user_active_session", return_value="acc1")
+
+    mock_state = MagicMock(spec=FSMContext)
+    mock_state.set_state = AsyncMock()
+    mock_state.update_data = AsyncMock()
+
+    mock_callback = MagicMock(spec=CallbackQuery)
+    mock_callback.from_user = mock_user
+    mock_callback.message = MagicMock()
+    mock_callback.message.edit_text = AsyncMock()
+    mock_callback.answer = AsyncMock()
+
+    await joiner_handlers.joiner_upload_file_handler(mock_callback, mock_state)
+
+    mock_state.set_state.assert_awaited_once_with(JoinerState.waiting_for_upload)
+    mock_state.update_data.assert_awaited_once_with(session_name="acc1")
+
+
+@pytest.mark.asyncio
+async def test_process_file_upload_handler(
+    mock_user: User, mock_chat: Chat, tmp_path: Path, mocker: MockerFixture
+) -> None:
+    """Test handling of uploaded document and task spawning."""
+    mocker.patch.object(joiner_handlers, "LINKS_DIR", tmp_path)
+    mocker.patch("bot_ui.joiner_handlers.get_user_active_session", return_value="acc1")
+    mocker.patch("bot_ui.joiner_handlers.run_auto_join_task", new_callable=AsyncMock)
+
+    mock_state = MagicMock(spec=FSMContext)
+    mock_state.get_data = AsyncMock(return_value={"session_name": "acc1"})
+    mock_state.clear = AsyncMock()
+
+    mock_message = MagicMock(spec=Message)
+    mock_message.from_user = mock_user
+    mock_message.document = MagicMock(spec=Document)
+    mock_message.document.file_name = "test_links.txt"
+    mock_message.bot = MagicMock()
+    mock_message.bot.download = AsyncMock()
+    mock_message.answer = AsyncMock()
+
+    await joiner_handlers.process_file_upload_handler(mock_message, mock_state)
+
+    mock_message.bot.download.assert_awaited_once()
+    mock_message.answer.assert_awaited_once()
+    mock_state.clear.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_joiner_select_extracted_handler_renders_dates(
+    mock_user: User, mock_chat: Chat, mocker: MockerFixture
+) -> None:
+    """Test selecting extracted dates renders the dates list."""
     mocker.patch("bot_ui.joiner_handlers.get_user_active_session", return_value="acc1")
     mocker.patch("bot_ui.joiner_handlers.get_available_group_dates", return_value=["2026-08-11"])
 
@@ -130,14 +182,10 @@ async def test_start_auto_join_handler_success_renders_dates(
     mock_callback.message.edit_text = AsyncMock()
     mock_callback.answer = AsyncMock()
 
-    await joiner_handlers.start_auto_join_handler(mock_callback, mock_state)
+    await joiner_handlers.joiner_select_extracted_handler(mock_callback, mock_state)
 
     mock_state.set_state.assert_awaited_once_with(JoinerState.selecting_date)
-    mock_state.update_data.assert_awaited_once_with(session_name="acc1")
     mock_callback.message.edit_text.assert_awaited_once()
-    args, kwargs = mock_callback.message.edit_text.call_args
-    assert "Auto-Joiner: Select Date" in kwargs["text"]
-    assert kwargs["reply_markup"] is not None
 
 
 # --- 3. Handler Step 2: Browse Files Tests ---

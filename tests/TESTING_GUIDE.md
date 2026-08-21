@@ -547,6 +547,20 @@ pytest -q
 
 ---
 
+## 17. Auto-Joiner Phase 2 Test Scenarios
+
+* **Components:** [`bot_ui/joiner_handlers.py`](file:///c:/Users/Lenovo/Desktop/Telegram/bot_ui/joiner_handlers.py), [`bot_ui/handlers.py`](file:///c:/Users/Lenovo/Desktop/Telegram/bot_ui/handlers.py)
+* **Command:**
+  ```bash
+  pytest tests/test_joiner_handlers.py tests/test_bot_ui.py -k "joiner" -v
+  ```
+* **Purpose:**
+  - FSM State Transitions for `waiting_for_upload`.
+  - File source selection branching (Upload vs Extracted files).
+  - System Stats countdown timer logic displaying resume time after batch sleep or conflict.
+
+---
+
 ## Standard Operating Procedure (SOP) for Developers & Agents
 
 1. Every newly created module must have a corresponding test suite located under `tests/test_<module_name>.py`.

@@ -1464,4 +1464,66 @@ async def test_send_main_menu_invalid_bot_or_chat_id() -> None:
     assert await handlers.send_main_menu(bot=MagicMock(), chat_id=0) is None
 
 
+# --- 10. System Stats Countdown UI Tests ---
+
+@pytest.mark.asyncio
+async def test_system_stats_callback_handler_joiner_idle(mocker: MockerFixture) -> None:
+    """Test system stats displays IDLE when joiner is not running."""
+    mocker.patch("bot_ui.handlers.get_user_active_session", return_value="acc1")
+    mocker.patch("bot_ui.handlers.is_joiner_running", return_value=False)
+    mocker.patch("bot_ui.handlers.get_total_links_count_async", new_callable=AsyncMock, return_value={})
+    mocker.patch("bot_ui.handlers.get_all_link_files", return_value=[])
+
+    mock_callback = MagicMock()
+    mock_callback.from_user.id = 12345
+    mock_callback.message.edit_text = AsyncMock()
+    mock_callback.answer = AsyncMock()
+
+    await handlers.system_stats_callback_handler(mock_callback)
+
+    args, kwargs = mock_callback.message.edit_text.call_args
+    assert "⚪ <b>IDLE ⏸️</b>" in kwargs["text"]
+    assert "Auto-Join Status:" in kwargs["text"]
+
+
+@pytest.mark.asyncio
+async def test_system_stats_callback_handler_joiner_sleeping(mocker: MockerFixture) -> None:
+    """Test system stats displays countdown when joiner is sleeping."""
+    import time
+    mocker.patch("bot_ui.handlers.get_user_active_session", return_value="acc1")
+    mocker.patch("bot_ui.handlers.is_joiner_running", return_value=True)
+    mocker.patch("bot_ui.handlers.get_joiner_sleep_state", return_value={"until": time.time() + 3600, "conflict": False})
+    mocker.patch("bot_ui.handlers.get_total_links_count_async", new_callable=AsyncMock, return_value={})
+    mocker.patch("bot_ui.handlers.get_all_link_files", return_value=[])
+
+    mock_callback = MagicMock()
+    mock_callback.from_user.id = 12345
+    mock_callback.message.edit_text = AsyncMock()
+    mock_callback.answer = AsyncMock()
+
+    await handlers.system_stats_callback_handler(mock_callback)
+
+    args, kwargs = mock_callback.message.edit_text.call_args
+    assert "Sleeping (Resumes in 1h 0m)" in kwargs["text"]
+
+
+@pytest.mark.asyncio
+async def test_system_stats_callback_handler_joiner_conflict(mocker: MockerFixture) -> None:
+    """Test system stats displays conflict yielding state when joiner is waiting due to conflict."""
+    import time
+    mocker.patch("bot_ui.handlers.get_user_active_session", return_value="acc1")
+    mocker.patch("bot_ui.handlers.is_joiner_running", return_value=True)
+    mocker.patch("bot_ui.handlers.get_joiner_sleep_state", return_value={"until": time.time() + 4500, "conflict": True})
+    mocker.patch("bot_ui.handlers.get_total_links_count_async", new_callable=AsyncMock, return_value={})
+    mocker.patch("bot_ui.handlers.get_all_link_files", return_value=[])
+
+    mock_callback = MagicMock()
+    mock_callback.from_user.id = 12345
+    mock_callback.message.edit_text = AsyncMock()
+    mock_callback.answer = AsyncMock()
+
+    await handlers.system_stats_callback_handler(mock_callback)
+
+    args, kwargs = mock_callback.message.edit_text.call_args
+    assert "Yielding to conflict" in kwargs["text"]
 
