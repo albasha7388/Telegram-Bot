@@ -154,26 +154,41 @@ def test_evaluate_message_rejected_by_missing_intent_in_positive_matrix(
     assert evaluate_message(sample_text) is False
 
 
-def test_load_keywords_missing_file_logs_error_and_returns_empty(mocker: MockerFixture) -> None:
-    """Test load_keywords logs error with absolute path and returns empty dict when file does not exist."""
-    mocker.patch("pathlib.Path.exists", return_value=False)
+def test_load_keywords_missing_file_logs_error_and_returns_fallback(mocker: MockerFixture) -> None:
+    """Test load_keywords logs error with file path and returns safe fallback dict on FileNotFoundError."""
+    mocker.patch("builtins.open", side_effect=FileNotFoundError("No such file or directory"))
     mock_logger_error = mocker.patch("userbot.auto_reply.logger.error")
 
     result = load_keywords(force_reload=True)
 
-    assert result == {}
+    assert result == {
+        "filters": {},
+        "regex_patterns": {},
+        "negative_phrases": [],
+        "positive_matrix": {
+            "intent_words": [],
+            "subject_words": [],
+        },
+    }
     mock_logger_error.assert_called_once()
-    assert "Keywords file not found at dynamically resolved path:" in mock_logger_error.call_args[0][0]
+    assert "Keywords file missing at:" in mock_logger_error.call_args[0][0]
 
 
-def test_load_keywords_corrupted_json_returns_empty(mocker: MockerFixture) -> None:
-    """Test load_keywords returns empty dict without crashing when JSON is corrupted."""
-    mocker.patch("pathlib.Path.exists", return_value=True)
+def test_load_keywords_corrupted_json_returns_fallback(mocker: MockerFixture) -> None:
+    """Test load_keywords returns safe fallback dict without crashing when JSON is corrupted."""
     mocker.patch("builtins.open", mocker.mock_open(read_data="{invalid_json}"))
     mock_logger_error = mocker.patch("userbot.auto_reply.logger.error")
 
     result = load_keywords(force_reload=True)
 
-    assert result == {}
+    assert result == {
+        "filters": {},
+        "regex_patterns": {},
+        "negative_phrases": [],
+        "positive_matrix": {
+            "intent_words": [],
+            "subject_words": [],
+        },
+    }
     mock_logger_error.assert_called_once()
     assert "Corrupted JSON in keywords file" in mock_logger_error.call_args[0][0]

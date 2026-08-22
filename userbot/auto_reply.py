@@ -13,12 +13,23 @@ from core.logger_setup import setup_logger
 
 logger = setup_logger(__name__)
 
-# Dynamic project root resolution and centralized keywords configuration path
+# Dynamic project root resolution and centralized keywords configuration path in root
 BASE_DIR: Final[Path] = Path(__file__).resolve().parent.parent
-KEYWORDS_FILE_PATH: Final[Path] = BASE_DIR / "data" / "keywords.json"
+KEYWORDS_FILE_PATH: Final[Path] = Path(__file__).resolve().parent.parent / "keywords.json"
 
 # In-memory cached rules dictionary to avoid repeated disk reads
 _KEYWORDS_CACHE: dict[str, Any] | None = None
+
+# Safe fallback schema dictionary
+SAFE_KEYWORDS_FALLBACK: Final[dict[str, Any]] = {
+    "filters": {},
+    "regex_patterns": {},
+    "negative_phrases": [],
+    "positive_matrix": {
+        "intent_words": [],
+        "subject_words": [],
+    },
+}
 
 # Comprehensive Unicode Emoji character pattern
 EMOJI_REGEX: Final[re.Pattern[str]] = re.compile(
@@ -39,7 +50,7 @@ EMOJI_REGEX: Final[re.Pattern[str]] = re.compile(
 
 
 def load_keywords(force_reload: bool = False) -> dict[str, Any]:
-    """Load and cache the intent classification rules from data/keywords.json.
+    """Load and cache the intent classification rules from keywords.json in the project root.
 
     Args:
         force_reload: If True, bypasses memory cache and reloads from disk.
@@ -49,35 +60,31 @@ def load_keywords(force_reload: bool = False) -> dict[str, Any]:
     """
     global _KEYWORDS_CACHE
     if _KEYWORDS_CACHE is None or force_reload:
-        if not KEYWORDS_FILE_PATH.exists():
-            logger.error(
-                "Keywords file not found at dynamically resolved path: %s",
-                KEYWORDS_FILE_PATH.absolute(),
-            )
-            return {}
-
         try:
             with open(KEYWORDS_FILE_PATH, "r", encoding="utf-8") as file_handle:
                 _KEYWORDS_CACHE = json.load(file_handle)
             logger.debug("Successfully loaded intent keywords configuration into memory.")
+        except FileNotFoundError:
+            logger.error(f"Keywords file missing at: {KEYWORDS_FILE_PATH}")
+            return SAFE_KEYWORDS_FALLBACK.copy()
         except OSError as exc:
             logger.error(
                 "Failed to read keywords file at '%s': %s",
-                KEYWORDS_FILE_PATH.absolute(),
+                KEYWORDS_FILE_PATH,
                 exc,
                 exc_info=True,
             )
-            return {}
+            return SAFE_KEYWORDS_FALLBACK.copy()
         except json.JSONDecodeError as exc:
             logger.error(
                 "Corrupted JSON in keywords file '%s': %s",
-                KEYWORDS_FILE_PATH.absolute(),
+                KEYWORDS_FILE_PATH,
                 exc,
                 exc_info=True,
             )
-            return {}
+            return SAFE_KEYWORDS_FALLBACK.copy()
 
-    return _KEYWORDS_CACHE or {}
+    return _KEYWORDS_CACHE or SAFE_KEYWORDS_FALLBACK.copy()
 
 
 def clear_keywords_cache() -> None:

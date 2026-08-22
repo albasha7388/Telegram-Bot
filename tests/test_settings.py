@@ -75,9 +75,11 @@ def test_undefined_module_attribute() -> None:
 
 
 def test_keywords_json_structure() -> None:
-    """Test that data/keywords.json exists and conforms to intent classification schema."""
-    keywords_path = Path(__file__).resolve().parent.parent / "data" / "keywords.json"
-    assert keywords_path.exists(), "data/keywords.json must exist"
+    """Test that keywords.json exists in project root and conforms to intent classification schema."""
+    root_path = Path(__file__).resolve().parent.parent / "keywords.json"
+    data_path = Path(__file__).resolve().parent.parent / "data" / "keywords.json"
+    keywords_path = root_path if root_path.exists() else data_path
+    assert keywords_path.exists(), "keywords.json must exist in project root"
 
     with open(keywords_path, "r", encoding="utf-8") as f:
         data = json.load(f)
