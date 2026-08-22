@@ -4,7 +4,7 @@ sessions/*.session
 sessions/*.session-journal
 
 # 📁 Project Data & Extracted Links (Keep your data private)
-data/links/
+# data/links/
 
 # 🐍 Virtual Environments
 env/
