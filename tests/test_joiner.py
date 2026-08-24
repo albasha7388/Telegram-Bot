@@ -548,3 +548,191 @@ async def test_run_auto_join_task_error_refreshes_main_menu(tmp_path: Path, mock
     mock_bot.send_message.assert_awaited_once()
     assert "Hybrid Telegram Control Panel" in mock_bot.send_message.call_args.kwargs["text"]
 
+
+# --- 5. Smart Target Batching Tests ---
+
+def test_save_remaining_links_to_file(tmp_path: Path) -> None:
+    """Test save_remaining_links_to_file writes list to disk safely."""
+    target_file = tmp_path / "remaining.txt"
+    links = ["https://t.me/grp_1", "https://t.me/grp_2"]
+    joiner.save_remaining_links_to_file(target_file, links)
+    
+    saved_content = target_file.read_text(encoding="utf-8").splitlines()
+    assert saved_content == links
+
+
+@pytest.mark.asyncio
+async def test_run_auto_join_task_smart_batch_success_target(tmp_path: Path, mocker: MockerFixture) -> None:
+    """Test smart batching stops the batch when 4 successful joins are reached."""
+    # 6 links total. First batch should join 4, then sleep, then join the remaining 2.
+    sample_file = tmp_path / "part_smart_success.txt"
+    sample_file.write_text(
+        "\n".join([f"https://t.me/grp_{i}" for i in range(1, 7)]) + "\n",
+        encoding="utf-8",
+    )
+
+    mock_client = MagicMock()
+    mock_client.start = AsyncMock()
+    mock_client.join_chat = AsyncMock(return_value=None)
+    mock_client.is_connected = True
+    mock_client.stop = AsyncMock()
+    mocker.patch("userbot.joiner.Client", return_value=mock_client)
+    mock_sleep = mocker.patch("asyncio.sleep", new_callable=AsyncMock)
+
+    mock_bot = MagicMock()
+    mock_bot.edit_message_text = AsyncMock()
+    mock_bot.send_message = AsyncMock()
+
+    stats = await joiner.run_auto_join_task(
+        session_name="smart_success_sess",
+        file_path=str(sample_file),
+        bot=mock_bot,
+        admin_chat_id=12345,
+        message_id=99,
+    )
+
+    assert stats["total"] == 6
+    assert stats["joined"] == 6
+    assert mock_client.join_chat.await_count == 6
+
+
+@pytest.mark.asyncio
+async def test_run_auto_join_task_smart_batch_ceiling_limit(tmp_path: Path, mocker: MockerFixture) -> None:
+    """Test smart batching stops the batch after 12 API attempts even if 0 succeeded."""
+    # 14 invalid links. First batch attempts 12, then sleeps, then second batch attempts remaining 2.
+    sample_file = tmp_path / "part_ceiling.txt"
+    sample_file.write_text(
+        "\n".join([f"https://t.me/+expired_{i}" for i in range(1, 15)]) + "\n",
+        encoding="utf-8",
+    )
+
+    mock_client = MagicMock()
+    mock_client.start = AsyncMock()
+    mock_client.join_chat = AsyncMock(side_effect=InviteHashExpired())
+    mock_client.is_connected = True
+    mock_client.stop = AsyncMock()
+    mocker.patch("userbot.joiner.Client", return_value=mock_client)
+    mock_sleep = mocker.patch("asyncio.sleep", new_callable=AsyncMock)
+
+    mock_bot = MagicMock()
+    mock_bot.edit_message_text = AsyncMock()
+    mock_bot.send_message = AsyncMock()
+
+    stats = await joiner.run_auto_join_task(
+        session_name="smart_ceiling_sess",
+        file_path=str(sample_file),
+        bot=mock_bot,
+        admin_chat_id=12345,
+        message_id=99,
+    )
+
+    assert stats["total"] == 14
+    assert stats["failed"] == 14
+    assert mock_client.join_chat.await_count == 14
+
+
+@pytest.mark.asyncio
+async def test_run_auto_join_task_smart_batch_mixed_attempts(tmp_path: Path, mocker: MockerFixture) -> None:
+    """Test batch stops when 4 successes are reached amidst skips and failures."""
+    # 8 links total:
+    # 1. Skipped (UserAlreadyParticipant) -> attempt 1, success 0
+    # 2. Failed (InviteHashInvalid) -> attempt 2, success 0
+    # 3. Joined -> attempt 3, success 1
+    # 4. Sent Request (InviteRequestSent) -> attempt 4, success 2
+    # 5. Skipped (UserAlreadyParticipant) -> attempt 5, success 2
+    # 6. Joined -> attempt 6, success 3
+    # 7. Joined -> attempt 7, success 4 (Target reached!)
+    # 8. Remaining link -> processed in second batch
+    sample_file = tmp_path / "part_mixed.txt"
+    sample_file.write_text(
+        "\n".join([f"https://t.me/mix_{i}" for i in range(1, 9)]) + "\n",
+        encoding="utf-8",
+    )
+
+    side_effects = [
+        UserAlreadyParticipant(),
+        InviteHashInvalid(),
+        None,  # Joined
+        InviteRequestSent(),  # Request sent
+        UserAlreadyParticipant(),
+        None,  # Joined
+        None,  # Joined (Batch 1 stops here with 4 successes!)
+        None,  # Joined (Batch 2)
+    ]
+
+    mock_client = MagicMock()
+    mock_client.start = AsyncMock()
+    mock_client.join_chat = AsyncMock(side_effect=side_effects)
+    mock_client.is_connected = True
+    mock_client.stop = AsyncMock()
+    mocker.patch("userbot.joiner.Client", return_value=mock_client)
+    mock_sleep = mocker.patch("asyncio.sleep", new_callable=AsyncMock)
+
+    mock_bot = MagicMock()
+    mock_bot.edit_message_text = AsyncMock()
+    mock_bot.send_message = AsyncMock()
+
+    stats = await joiner.run_auto_join_task(
+        session_name="smart_mixed_sess",
+        file_path=str(sample_file),
+        bot=mock_bot,
+        admin_chat_id=12345,
+        message_id=99,
+    )
+
+    assert stats["total"] == 8
+    assert stats["joined"] == 4
+    assert stats["sent_request"] == 1
+    assert stats["skipped_already_in"] == 2
+    assert stats["failed"] == 1
+    assert mock_client.join_chat.await_count == 8
+
+
+@pytest.mark.asyncio
+async def test_run_auto_join_task_smart_batch_flood_wait_retries_without_consuming_attempts(
+    tmp_path: Path, mocker: MockerFixture
+) -> None:
+    """Test FloodWait does not increment batch attempts/successes and retries link."""
+    # 4 links. The 1st link encounters FloodWait(15), then succeeds. Total joins = 4.
+    sample_file = tmp_path / "part_flood_batch.txt"
+    sample_file.write_text(
+        "\n".join([f"https://t.me/flood_grp_{i}" for i in range(1, 5)]) + "\n",
+        encoding="utf-8",
+    )
+
+    side_effects = [
+        FloodWait(value=15),
+        None,  # 1st link retry succeeds -> attempt 1, success 1
+        None,  # 2nd link succeeds -> attempt 2, success 2
+        None,  # 3rd link succeeds -> attempt 3, success 3
+        None,  # 4th link succeeds -> attempt 4, success 4 (Target reached!)
+    ]
+
+    mock_client = MagicMock()
+    mock_client.start = AsyncMock()
+    mock_client.join_chat = AsyncMock(side_effect=side_effects)
+    mock_client.is_connected = True
+    mock_client.stop = AsyncMock()
+    mocker.patch("userbot.joiner.Client", return_value=mock_client)
+    mock_sleep = mocker.patch("asyncio.sleep", new_callable=AsyncMock)
+
+    mock_bot = MagicMock()
+    mock_bot.edit_message_text = AsyncMock()
+    mock_bot.send_message = AsyncMock()
+
+    stats = await joiner.run_auto_join_task(
+        session_name="smart_flood_sess",
+        file_path=str(sample_file),
+        bot=mock_bot,
+        admin_chat_id=12345,
+        message_id=99,
+    )
+
+    assert stats["total"] == 4
+    assert stats["joined"] == 4
+    assert mock_client.join_chat.await_count == 5
+    # Verified FloodWait sleep (15 + 10 = 25s) was executed
+    mock_sleep.assert_any_await(25)
+
+
+

@@ -36,6 +36,10 @@ logger = setup_logger(__name__)
 # Standard delay in seconds between successful group joins to prevent account restrictions
 JOIN_ANTI_SPAM_SLEEP_SECONDS: Final[int] = 7
 
+# Smart Target batching configuration
+BATCH_SUCCESS_TARGET: Final[int] = 4
+BATCH_MAX_API_ATTEMPTS: Final[int] = 12
+
 # Regex pattern to match Telegram group/channel invite links or usernames
 TG_LINK_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"(?:https?://)?(?:www\.)?(?:t\.me|telegram\.me)/(?:joinchat/|\+)?([a-zA-Z0-9_]+)",
@@ -79,6 +83,23 @@ def extract_links_from_file(file_path: Union[str, Path]) -> list[str]:
 
 
 parse_group_links_from_file = extract_links_from_file
+
+
+def save_remaining_links_to_file(file_path: Union[str, Path], links: list[str]) -> None:
+    """Save the updated list of remaining join links to disk safely using a context manager.
+
+    Args:
+        file_path: Absolute or relative Path or string path to the link text file.
+        links: List of remaining link strings to write.
+    """
+    path_obj = Path(file_path)
+    try:
+        with open(path_obj, "w", encoding="utf-8") as f:
+            for link in links:
+                f.write(link + "\n")
+        logger.debug("Saved %d remaining link(s) to '%s'", len(links), path_obj.name)
+    except OSError as io_err:
+        logger.error("Failed writing updated remaining links to '%s': %s", path_obj.name, io_err)
 
 
 def sanitize_chat_target(link: str) -> str:
@@ -140,7 +161,7 @@ async def run_auto_join_task(
         message_id: ID of the progress message to edit.
 
     Returns:
-        dict[str, int]: Execution statistics (total, joined, skipped_already_in, failed).
+        dict[str, int]: Execution statistics (total, joined, sent_request, skipped_already_in, failed).
     """
     path_obj = Path(file_path)
     links = extract_links_from_file(path_obj)
@@ -212,47 +233,122 @@ async def run_auto_join_task(
             if is_userbot_running(session_name) or is_extraction_running(session_name):
                 sleep_time = random.randint(3600, 7200)
                 set_joiner_sleep_state(session_name, time.time() + sleep_time, conflict=True)
-                logger.info("Conflict detected: Another task is currently active for this session. Delaying join task for another full cycle (%ds).", sleep_time)
+                logger.info(
+                    "Conflict detected: Another task is currently active for this session. "
+                    "Delaying join task for another full cycle (%ds).",
+                    sleep_time,
+                )
                 await asyncio.sleep(sleep_time)
                 set_joiner_sleep_state(session_name, 0, False)
                 continue
 
-            batch = links[:4]
-            for link in batch:
+            batch_successful_joins = 0
+            batch_api_attempts = 0
+
+            while links and batch_successful_joins < BATCH_SUCCESS_TARGET and batch_api_attempts < BATCH_MAX_API_ATTEMPTS:
+                if is_userbot_running(session_name) or is_extraction_running(session_name):
+                    sleep_time = random.randint(3600, 7200)
+                    set_joiner_sleep_state(session_name, time.time() + sleep_time, conflict=True)
+                    logger.info(
+                        "Conflict detected: Another task is currently active for this session. "
+                        "Delaying join task for another full cycle (%ds).",
+                        sleep_time,
+                    )
+                    await asyncio.sleep(sleep_time)
+                    set_joiner_sleep_state(session_name, 0, False)
+                    continue
+
+                link = links[0]
                 target_chat = sanitize_chat_target(link)
+
                 while True:
                     try:
                         logger.debug("Joining '%s' (as '%s') via session '%s'...", link, target_chat, session_name)
                         await client.join_chat(target_chat)
                         stats["joined"] += 1
-                        logger.info("Successfully joined '%s' on session '%s'", link, session_name)
-                        links.remove(link)
+                        batch_successful_joins += 1
+                        batch_api_attempts += 1
+                        logger.info(
+                            "Successfully joined '%s' on session '%s' (Batch: %d/%d joins, %d/%d attempts)",
+                            link,
+                            session_name,
+                            batch_successful_joins,
+                            BATCH_SUCCESS_TARGET,
+                            batch_api_attempts,
+                            BATCH_MAX_API_ATTEMPTS,
+                        )
+                        links.pop(0)
+                        save_remaining_links_to_file(path_obj, links)
                         await asyncio.sleep(JOIN_ANTI_SPAM_SLEEP_SECONDS)
                         break
                     except UserAlreadyParticipant:
                         stats["skipped_already_in"] += 1
-                        logger.info("Skipped '%s': already a participant on session '%s'", link, session_name)
-                        links.remove(link)
+                        batch_api_attempts += 1
+                        logger.info(
+                            "Skipped '%s': already a participant on session '%s' (Batch: %d/%d joins, %d/%d attempts)",
+                            link,
+                            session_name,
+                            batch_successful_joins,
+                            BATCH_SUCCESS_TARGET,
+                            batch_api_attempts,
+                            BATCH_MAX_API_ATTEMPTS,
+                        )
+                        links.pop(0)
+                        save_remaining_links_to_file(path_obj, links)
                         break
                     except InviteRequestSent:
                         stats["sent_request"] += 1
-                        logger.info("Join request sent for '%s' on session '%s'", link, session_name)
-                        links.remove(link)
+                        batch_successful_joins += 1
+                        batch_api_attempts += 1
+                        logger.info(
+                            "Join request sent for '%s' on session '%s' (Batch: %d/%d joins, %d/%d attempts)",
+                            link,
+                            session_name,
+                            batch_successful_joins,
+                            BATCH_SUCCESS_TARGET,
+                            batch_api_attempts,
+                            BATCH_MAX_API_ATTEMPTS,
+                        )
+                        links.pop(0)
+                        save_remaining_links_to_file(path_obj, links)
                         await asyncio.sleep(JOIN_ANTI_SPAM_SLEEP_SECONDS)
                         break
                     except (InviteHashExpired, InviteHashInvalid):
                         stats["failed"] += 1
-                        logger.warning("Link '%s' is dead (Expired/Invalid Hash). Removing from queue.", link)
-                        links.remove(link)
+                        batch_api_attempts += 1
+                        logger.warning(
+                            "Link '%s' is dead (Expired/Invalid Hash). Removing from queue. (Batch: %d/%d joins, %d/%d attempts)",
+                            link,
+                            batch_successful_joins,
+                            BATCH_SUCCESS_TARGET,
+                            batch_api_attempts,
+                            BATCH_MAX_API_ATTEMPTS,
+                        )
+                        links.pop(0)
+                        save_remaining_links_to_file(path_obj, links)
                         break
                     except UserBannedInChannel:
                         stats["failed"] += 1
-                        logger.warning("Banned in '%s'. Removing from queue.", link)
-                        links.remove(link)
+                        batch_api_attempts += 1
+                        logger.warning(
+                            "Banned in '%s'. Removing from queue. (Batch: %d/%d joins, %d/%d attempts)",
+                            link,
+                            batch_successful_joins,
+                            BATCH_SUCCESS_TARGET,
+                            batch_api_attempts,
+                            BATCH_MAX_API_ATTEMPTS,
+                        )
+                        links.pop(0)
+                        save_remaining_links_to_file(path_obj, links)
                         break
                     except FloodWait as exc:
                         wait_seconds = exc.value + 10
-                        logger.warning("FloodWait of %d seconds triggered when joining '%s'. Sleeping %ds before retry.", exc.value, link, wait_seconds)
+                        logger.warning(
+                            "FloodWait of %d seconds triggered when joining '%s'. Sleeping %ds before retry.",
+                            exc.value,
+                            link,
+                            wait_seconds,
+                        )
                         flood_text = (
                             "⚠️ <b>Telegram Rate Limit (FloodWait)</b>\n\n"
                             f"Telegram requested waiting for <b>{exc.value}</b> seconds.\n"
@@ -273,13 +369,33 @@ async def run_auto_join_task(
                         # Loop continues without break to retry this exact same link!
                     except RPCError as exc:
                         stats["failed"] += 1
-                        logger.warning("Pyrogram RPCError when joining '%s': %s", link, exc)
-                        links.remove(link)
+                        batch_api_attempts += 1
+                        logger.warning(
+                            "Pyrogram RPCError when joining '%s': %s (Batch: %d/%d joins, %d/%d attempts)",
+                            link,
+                            exc,
+                            batch_successful_joins,
+                            BATCH_SUCCESS_TARGET,
+                            batch_api_attempts,
+                            BATCH_MAX_API_ATTEMPTS,
+                        )
+                        links.pop(0)
+                        save_remaining_links_to_file(path_obj, links)
                         break
                     except Exception as exc:
                         stats["failed"] += 1
-                        logger.warning("Failed to join '%s': %s", link, exc)
-                        links.remove(link)
+                        batch_api_attempts += 1
+                        logger.warning(
+                            "Failed to join '%s': %s (Batch: %d/%d joins, %d/%d attempts)",
+                            link,
+                            exc,
+                            batch_successful_joins,
+                            BATCH_SUCCESS_TARGET,
+                            batch_api_attempts,
+                            BATCH_MAX_API_ATTEMPTS,
+                        )
+                        links.pop(0)
+                        save_remaining_links_to_file(path_obj, links)
                         break
 
             # Send live progress update
@@ -306,20 +422,16 @@ async def run_auto_join_task(
                     )
                 except Exception as ui_exc:
                     logger.debug("Failed updating progress UI: %s", ui_exc)
-            
-            # Save progress to file
-            try:
-                with open(path_obj, "w", encoding="utf-8") as f:
-                    for remaining_link in links:
-                        f.write(remaining_link + "\n")
-                logger.debug("Saved %d remaining links to '%s'", len(links), path_obj.name)
-            except OSError as io_err:
-                logger.error("Failed writing updated remaining links to '%s': %s", path_obj.name, io_err)
 
             if links:
                 sleep_time = random.randint(3600, 7200)
                 set_joiner_sleep_state(session_name, time.time() + sleep_time, conflict=False)
-                logger.info("Batch processed. Sleeping for %d seconds before next batch.", sleep_time)
+                logger.info(
+                    "Batch processed (%d joins, %d attempts). Sleeping for %d seconds before next batch.",
+                    batch_successful_joins,
+                    batch_api_attempts,
+                    sleep_time,
+                )
                 await asyncio.sleep(sleep_time)
                 set_joiner_sleep_state(session_name, 0, False)
 
