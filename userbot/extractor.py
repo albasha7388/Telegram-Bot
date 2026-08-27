@@ -26,7 +26,7 @@ from aiogram.types import FSInputFile
 
 from config.settings import API_HASH, API_ID
 from core.config import ARCHIVE_CHANNEL_ID
-from core.file_manager import save_link
+from core.file_manager import save_link, get_files_by_category
 from core.logger_setup import setup_logger
 from core.utils import format_timestamp
 from userbot.session_manager import get_session_string
@@ -146,6 +146,52 @@ async def run_extraction_task(
     scanned_groups_count = 0
     total_links_found = 0
 
+    seen_links: set[str] = set()
+    new_links_batch: list[tuple[str, str]] = []
+
+    normalized_target = target_type.strip().lower()
+
+    # Pre-load existing links for deduplication
+    categories_to_load = []
+    if normalized_target in ("all", "tg_groups", "telegram_groups"):
+        categories_to_load.append("telegram_groups")
+    if normalized_target in ("all", "tg_folders", "telegram_folders"):
+        categories_to_load.append("telegram_folders")
+    if normalized_target in ("all", "whatsapp"):
+        categories_to_load.append("whatsapp")
+
+    for cat in categories_to_load:
+        cat_files = get_files_by_category(cat, session_name=session_name)
+        for cf in cat_files:
+            try:
+                with open(cf, "r", encoding="utf-8") as f:
+                    for line in f:
+                        cleaned = line.strip()
+                        if cleaned:
+                            seen_links.add(cleaned)
+            except OSError as exc:
+                logger.error("Failed to read existing links from '%s': %s", cf, exc)
+    
+    logger.info("Pre-loaded %d unique existing links for deduplication.", len(seen_links))
+
+    def flush_links_batch():
+        nonlocal new_links_batch
+        if not new_links_batch:
+            return
+        for link, cat in new_links_batch:
+            try:
+                saved_file = save_link(
+                    link,
+                    category=cat,
+                    session_name=session_name,
+                    run_timestamp=run_timestamp,
+                )
+                files_generated_this_run.add(saved_file)
+            except Exception as exc:
+                logger.error("Failed to persist %s link '%s': %s", cat, link, exc)
+        logger.debug("Flushed %d new links to disk.", len(new_links_batch))
+        new_links_batch.clear()
+
     progress_msg: Any = None
     if bot and admin_chat_id:
         try:
@@ -175,8 +221,6 @@ async def run_extraction_task(
             workdir=str(SESSIONS_DIR),
             no_updates=True,
         )
-
-    normalized_target = target_type.strip().lower()
 
     try:
         async with app:
@@ -223,54 +267,37 @@ async def run_extraction_task(
                             if normalized_target in ("all", "tg_groups", "telegram_groups", "tg_folders", "telegram_folders"):
                                 group_links, folder_links = extract_and_segregate_telegram_links(text_content)
 
-                                # Flush group_links -> data/links/{session_name}/YYYY-MM-DD/telegram_groups/part_X.txt
+                                # Flush group_links
                                 if normalized_target in ("all", "tg_groups", "telegram_groups"):
                                     for tg_link in group_links:
-                                        try:
-                                            saved_file = save_link(
-                                                tg_link,
-                                                category="telegram_groups",
-                                                session_name=session_name,
-                                                run_timestamp=run_timestamp,
-                                            )
-                                            files_generated_this_run.add(saved_file)
+                                        if tg_link not in seen_links:
+                                            seen_links.add(tg_link)
+                                            new_links_batch.append((tg_link, "telegram_groups"))
                                             counters["tg_groups"] += 1
-                                            logger.debug("Persisted extracted Telegram group link: %s", tg_link)
-                                        except Exception as exc:
-                                            logger.error("Failed to persist Telegram group link '%s': %s", tg_link, exc)
 
-                                # Flush folder_links -> data/links/{session_name}/YYYY-MM-DD/telegram_folders/part_X.txt
+                                # Flush folder_links
                                 if normalized_target in ("all", "tg_folders", "telegram_folders"):
                                     for folder_link in folder_links:
-                                        try:
-                                            saved_file = save_link(
-                                                folder_link,
-                                                category="telegram_folders",
-                                                session_name=session_name,
-                                                run_timestamp=run_timestamp,
-                                            )
-                                            files_generated_this_run.add(saved_file)
+                                        if folder_link not in seen_links:
+                                            seen_links.add(folder_link)
+                                            new_links_batch.append((folder_link, "telegram_folders"))
                                             counters["tg_folders"] += 1
-                                            logger.debug("Persisted extracted Telegram folder link: %s", folder_link)
-                                        except Exception as exc:
-                                            logger.error("Failed to persist Telegram folder link '%s': %s", folder_link, exc)
 
                             # 2. WhatsApp Group links -> data/links/{session_name}/YYYY-MM-DD/whatsapp/part_X.txt
                             if normalized_target in ("all", "whatsapp"):
                                 for wa_link in extract_whatsapp_links(text_content):
-                                    try:
-                                        if validate_whatsapp_link(wa_link):
-                                            saved_file = save_link(
-                                                wa_link,
-                                                category="whatsapp",
-                                                session_name=session_name,
-                                                run_timestamp=run_timestamp,
-                                            )
-                                            files_generated_this_run.add(saved_file)
-                                            counters["whatsapp"] += 1
-                                            logger.debug("Persisted validated WhatsApp link: %s", wa_link)
-                                    except Exception as exc:
-                                        logger.error("Failed validating/persisting WhatsApp link '%s': %s", wa_link, exc)
+                                    if wa_link not in seen_links:
+                                        try:
+                                            if validate_whatsapp_link(wa_link):
+                                                seen_links.add(wa_link)
+                                                new_links_batch.append((wa_link, "whatsapp"))
+                                                counters["whatsapp"] += 1
+                                        except Exception as exc:
+                                            logger.error("Failed validating WhatsApp link '%s': %s", wa_link, exc)
+                            
+                            # Batch flush to disk
+                            if len(new_links_batch) >= 500:
+                                flush_links_batch()
 
                         # Periodic live progress notification every 500 messages checked globally
                         if total_messages_checked % 500 == 0 and bot and admin_chat_id and progress_msg:
@@ -306,6 +333,8 @@ async def run_extraction_task(
                 # API Throttling cooldown between group iterations to mitigate anti-flood & rate limits
                 await asyncio.sleep(1.5)
 
+        # Ensure any remaining links are flushed to disk before final reporting and archiving
+        flush_links_batch()
         total_links_found = sum(counters.values())
 
         logger.info(
@@ -477,6 +506,7 @@ async def run_extraction_task(
             except Exception as menu_exc:
                 logger.error("Failed to auto-refresh Main Menu after extraction failure: %s", menu_exc)
     finally:
+        flush_links_batch()
         from core.process_manager import active_extractions
         active_extractions.pop(session_name, None)
 

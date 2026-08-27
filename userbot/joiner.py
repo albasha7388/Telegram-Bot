@@ -229,7 +229,16 @@ async def run_auto_join_task(
 
         from core.process_manager import is_userbot_running, is_extraction_running, set_joiner_sleep_state
 
+        start_time = time.time()
+        ttl_expired = False
+
         while links:
+            if time.time() - start_time >= 86400:
+                logger.info("Auto-Joiner reached 24h TTL limit on session '%s'. Saving remaining links and stopping.", session_name)
+                save_remaining_links_to_file(path_obj, links)
+                ttl_expired = True
+                break
+
             if is_userbot_running(session_name) or is_extraction_running(session_name):
                 sleep_time = random.randint(3600, 7200)
                 set_joiner_sleep_state(session_name, time.time() + sleep_time, conflict=True)
@@ -438,24 +447,42 @@ async def run_auto_join_task(
         # Send Shift Completion Notification to Admin
         if bot and admin_chat_id:
             try:
-                await bot.send_message(
-                    chat_id=admin_chat_id,
-                    text="✅ Auto-Join Shift Completed for this session. All links processed.",
-                )
+                if ttl_expired:
+                    await bot.send_message(
+                        chat_id=admin_chat_id,
+                        text="⏳ Auto-Join Shift Completed for this session (24-Hour limit reached). Remaining links saved.",
+                    )
+                else:
+                    await bot.send_message(
+                        chat_id=admin_chat_id,
+                        text="✅ Auto-Join Shift Completed for this session. All links processed.",
+                    )
             except Exception as notify_exc:
                 logger.debug("Failed sending shift completion notification: %s", notify_exc)
 
         # Final completion UI update
-        completion_text = (
-            "✅ <b>Auto-Joiner Task Completed!</b>\n\n"
-            f"📁 Target File: <code>{path_obj.name}</code>\n"
-            f"🟢 Successfully Joined: <b>{stats['joined']}</b>\n"
-            f"📩 Requests Sent: <b>{stats['sent_request']}</b>\n"
-            f"⏭️ Skipped (Already in): <b>{stats['skipped_already_in']}</b>\n"
-            f"❌ Failed / Expired: <b>{stats['failed']}</b>\n"
-            f"📊 Total Processed: <b>{stats['total']}</b>\n\n"
-            "All targets in the selected file have been processed."
-        )
+        if ttl_expired:
+            completion_text = (
+                "⏳ <b>Auto-Joiner Task Paused (24h Limit Reached)!</b>\n\n"
+                f"📁 Target File: <code>{path_obj.name}</code>\n"
+                f"🟢 Successfully Joined: <b>{stats['joined']}</b>\n"
+                f"📩 Requests Sent: <b>{stats['sent_request']}</b>\n"
+                f"⏭️ Skipped (Already in): <b>{stats['skipped_already_in']}</b>\n"
+                f"❌ Failed / Expired: <b>{stats['failed']}</b>\n"
+                f"📊 Total Processed: <b>{stats['total'] - len(links)}</b>\n\n"
+                f"📝 Remaining in queue: <b>{len(links)}</b>"
+            )
+        else:
+            completion_text = (
+                "✅ <b>Auto-Joiner Task Completed!</b>\n\n"
+                f"📁 Target File: <code>{path_obj.name}</code>\n"
+                f"🟢 Successfully Joined: <b>{stats['joined']}</b>\n"
+                f"📩 Requests Sent: <b>{stats['sent_request']}</b>\n"
+                f"⏭️ Skipped (Already in): <b>{stats['skipped_already_in']}</b>\n"
+                f"❌ Failed / Expired: <b>{stats['failed']}</b>\n"
+                f"📊 Total Processed: <b>{stats['total']}</b>\n\n"
+                "All targets in the selected file have been processed."
+            )
         if bot and admin_chat_id and message_id:
             try:
                 await bot.edit_message_text(

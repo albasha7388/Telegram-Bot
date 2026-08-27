@@ -724,6 +724,9 @@ async def system_stats_callback_handler(callback: CallbackQuery) -> None:
 
     stats_text = (
         "📊 <b>System Statistics Dashboard</b>\n\n"
+        "💡 <b>Legend:</b>\n"
+        "• <b>TG Groups / WhatsApp:</b> Total number of extracted target groups saved in the database.\n"
+        "• <b>Auto-Join Status:</b> Shows if the bot is actively joining groups, or sleeping (to avoid spam flags or yield to other tasks).\n\n"
         f"👤 <b>Active Session:</b> {session_display}\n"
         f"🤖 <b>Auto-Reply Status:</b> {userbot_display}\n"
         f"🔍 <b>Extractor Status:</b> {extractor_display}\n"

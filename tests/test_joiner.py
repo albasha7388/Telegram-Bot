@@ -735,4 +735,53 @@ async def test_run_auto_join_task_smart_batch_flood_wait_retries_without_consumi
     mock_sleep.assert_any_await(25)
 
 
+@pytest.mark.asyncio
+async def test_run_auto_join_task_ttl_limit(
+    tmp_path: Path, mocker: MockerFixture
+) -> None:
+    """Test that Auto-Joiner loop breaks after 24 hours."""
+    sample_file = tmp_path / "part_ttl.txt"
+    sample_file.write_text(
+        "\n".join([f"https://t.me/ttl_grp_{i}" for i in range(1, 5)]) + "\n",
+        encoding="utf-8",
+    )
 
+    mock_client = MagicMock()
+    mock_client.start = AsyncMock()
+    # Mock join_chat to succeed, but we'll mock time.time to simulate expiry after 1 join
+    mock_client.join_chat = AsyncMock(return_value=None)
+    mock_client.is_connected = True
+    mock_client.stop = AsyncMock()
+    mocker.patch("userbot.joiner.Client", return_value=mock_client)
+    mock_sleep = mocker.patch("asyncio.sleep", new_callable=AsyncMock)
+
+    mock_bot = MagicMock()
+    mock_bot.edit_message_text = AsyncMock()
+    mock_bot.send_message = AsyncMock()
+    mocker.patch("bot_ui.handlers.send_main_menu", new_callable=AsyncMock)
+
+    # Mock time.time to advance by 86400+ seconds on the second loop iteration
+    # The first call is the initialization `start_time = time.time()`
+    # The second call is the first check `if time.time() - start_time >= 86400`
+    # The third call is the inner check inside the batch loop
+    # ... we can just return a large value after the first few calls
+    times = [0.0, 1.0, 2.0, 86405.0]
+    mocker.patch("time.time", side_effect=lambda: times.pop(0) if times else 86405.0)
+
+    stats = await joiner.run_auto_join_task(
+        session_name="ttl_sess",
+        file_path=str(sample_file),
+        bot=mock_bot,
+        admin_chat_id=12345,
+        message_id=99,
+    )
+
+    # Only 0 links should have been processed because the second iteration TTL expired
+    assert stats["joined"] == 0
+    assert stats["total"] == 4
+    
+    # Assert TTL expiration message was sent
+    mock_bot.send_message.assert_any_await(
+        chat_id=12345,
+        text="⏳ Auto-Join Shift Completed for this session (24-Hour limit reached). Remaining links saved.",
+    )

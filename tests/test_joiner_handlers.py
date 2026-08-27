@@ -380,3 +380,42 @@ def test_get_joiner_progress_keyboard_structure() -> None:
     button = markup.inline_keyboard[0][0]
     assert button.text == "⏹️ Stop Auto-Joiner"
     assert button.callback_data == "stop_joiner_sess_gamma"
+
+
+@pytest.mark.asyncio
+async def test_select_joiner_file_handler_dispatches_main_menu(
+    mock_user: User, mocker: MockerFixture
+) -> None:
+    """Test that select_joiner_file_handler automatically dispatches the main menu."""
+    mocker.patch("bot_ui.joiner_handlers.get_user_active_session", return_value="test_session")
+    mocker.patch("bot_ui.joiner_handlers.is_userbot_running", return_value=False)
+    
+    # Mock file existence
+    mock_path = MagicMock(spec=Path)
+    mock_path.exists.return_value = True
+    mocker.patch("bot_ui.joiner_handlers.LINKS_DIR", mock_path)
+    mock_path.__truediv__.return_value = mock_path
+    mock_send_main_menu = mocker.patch("bot_ui.handlers.send_main_menu", new_callable=AsyncMock)
+    mocker.patch("bot_ui.joiner_handlers.run_auto_join_task", new_callable=AsyncMock)
+
+    mock_state = AsyncMock(spec=FSMContext)
+    mock_state.get_data.return_value = {"selected_date": "2026-08-01"}
+
+    mock_callback = AsyncMock(spec=CallbackQuery)
+    mock_callback.from_user = mock_user
+    mock_callback.data = "jfile_part_1.txt"
+    mock_callback.answer = AsyncMock()
+    
+    mock_message = AsyncMock()
+    mock_message.chat.id = 12345
+    mock_message.message_id = 99
+    mock_callback.message = mock_message
+    mock_callback.bot = "fake_bot"
+
+    await joiner_handlers.select_joiner_file_handler(mock_callback, mock_state)
+
+    mock_send_main_menu.assert_awaited_once_with(
+        bot="fake_bot",
+        chat_id=12345,
+        session_name="test_session"
+    )

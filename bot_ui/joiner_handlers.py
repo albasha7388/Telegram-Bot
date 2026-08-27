@@ -258,6 +258,12 @@ async def process_file_upload_handler(message: Message, state: FSMContext) -> No
     )
     active_joiners[session_name] = task
 
+    try:
+        from bot_ui.handlers import send_main_menu
+        await send_main_menu(bot=message.bot, chat_id=user_id, session_name=session_name)
+    except Exception as exc:
+        logger.error("Failed to dispatch main menu on joiner start: %s", exc)
+
 
 @router.callback_query(F.data == "joiner_extracted")
 async def joiner_select_extracted_handler(callback: CallbackQuery, state: FSMContext) -> None:
@@ -466,6 +472,12 @@ async def select_joiner_file_handler(callback: CallbackQuery, state: FSMContext)
             name=f"joiner_{active_session}",
         )
         active_joiners[active_session] = task
+        
+    try:
+        from bot_ui.handlers import send_main_menu
+        await send_main_menu(bot=callback.bot, chat_id=user_id, session_name=active_session)
+    except Exception as exc:
+        logger.error("Failed to dispatch main menu on joiner start: %s", exc)
 
 
 @router.callback_query(F.data.startswith("stop_joiner_"))

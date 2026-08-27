@@ -556,8 +556,22 @@ pytest -q
   ```
 * **Purpose:**
   - FSM State Transitions for `waiting_for_upload`.
-  - File source selection branching (Upload vs Extracted files).
+    - File source selection branching (Upload vs Extracted files).
   - System Stats countdown timer logic displaying resume time after batch sleep or conflict.
+
+---
+
+## 18. Phase 3 System Upgrades (Deduplication, TTL, & Auto-Menu)
+
+* **Components:** [`userbot/extractor.py`](file:///c:/Users/Lenovo/Desktop/Telegram/userbot/extractor.py), [`userbot/joiner.py`](file:///c:/Users/Lenovo/Desktop/Telegram/userbot/joiner.py), [`bot_ui/joiner_handlers.py`](file:///c:/Users/Lenovo/Desktop/Telegram/bot_ui/joiner_handlers.py)
+* **Command:**
+  ```bash
+  pytest tests/test_extractor.py::test_run_extraction_task_in_memory_deduplication tests/test_joiner.py::test_run_auto_join_task_ttl_limit tests/test_joiner_handlers.py::test_select_joiner_file_handler_dispatches_main_menu -v
+  ```
+* **Purpose:**
+  - **In-Memory Deduplication (`extractor.py`)**: Validates that all links previously extracted for a given target category are pre-loaded into an in-memory set before processing, effectively preventing disk I/O bottlenecking and duplicate link saves. Verifies that only new links are processed and saved in batches.
+  - **24-Hour TTL Limit (`joiner.py`)**: Tests the `run_auto_join_task` Auto-Joiner loop to ensure it correctly monitors its execution time, immediately breaks out of its processing loop after 24 hours of operation, saves the remaining links to the original target file, and notifies the Admin with the modified status string.
+  - **Auto-Menu Dispatch (`joiner_handlers.py`)**: Tests that when an Auto-Joiner shift is initiated, the system immediately automatically re-dispatches the Main Menu to the Admin's screen using `send_main_menu`, allowing the user to seamlessly resume navigation without being stuck on the file selection screen.
 
 ---
 

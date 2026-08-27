@@ -561,4 +561,63 @@ async def test_run_extraction_task_no_archive_when_no_files_generated(
     mock_bot.send_document.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_run_extraction_task_in_memory_deduplication(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    """Test that existing links are loaded into memory and prevent duplicate processing/saving."""
+    session_name = "dedup_session"
+    mocker.patch("core.file_manager.LINKS_DIR", tmp_path)
+    mock_get_files = mocker.patch("userbot.extractor.get_files_by_category")
+    
+    # Create a dummy file that simulates already extracted links
+    dummy_file = tmp_path / "part_1.txt"
+    dummy_file.write_text("https://t.me/existing_group\nhttps://chat.whatsapp.com/existingWA1234\n")
+    mock_get_files.return_value = [dummy_file]
 
+    # Mock client and dialogs
+    mock_client = MagicMock()
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+
+    mock_chat = MagicMock()
+    mock_chat.id = 123
+    mock_chat.type = ChatType.GROUP
+
+    mock_dialog = MagicMock()
+    mock_dialog.chat = mock_chat
+    mock_client.get_dialogs.return_value = AsyncCustomIterator([mock_dialog])
+
+    # Message containing an existing link AND a new link
+    mock_msg = MagicMock()
+    mock_msg.date = datetime.now(timezone.utc)
+    mock_msg.text = "Join our group https://t.me/existing_group and new group https://t.me/new_group"
+    
+    # Message containing an existing WA link AND a new WA link
+    mock_msg_wa = MagicMock()
+    mock_msg_wa.date = datetime.now(timezone.utc)
+    mock_msg_wa.text = "WA: https://chat.whatsapp.com/existingWA1234 and https://chat.whatsapp.com/newWAgroup123"
+
+    mock_client.get_chat_history.return_value = AsyncCustomIterator([mock_msg, mock_msg_wa])
+
+    mocker.patch("userbot.extractor.Client", return_value=mock_client)
+    mocker.patch("userbot.extractor.validate_whatsapp_link", return_value=True)
+
+    mock_save = mocker.patch("userbot.extractor.save_link", return_value="fake_path.txt")
+
+    saved_count = await extractor.run_extraction_task(
+        session_name=session_name,
+        target_type="all",
+    )
+
+    # We expect exactly 2 new links to be processed and saved (new_group and newWAgroup123)
+    # The existing ones should be deduplicated by the in-memory set
+    assert saved_count == 2
+    assert mock_save.call_count == 2
+    
+    # Verify the specific calls to save_link
+    saved_links = [call_args.args[0] for call_args in mock_save.call_args_list]
+    assert "https://t.me/new_group" in saved_links
+    assert "https://chat.whatsapp.com/newWAgroup123" in saved_links
+    assert "https://t.me/existing_group" not in saved_links
+    assert "https://chat.whatsapp.com/existingWA1234" not in saved_links
