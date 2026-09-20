@@ -12,6 +12,7 @@ from aiogram import Bot, Dispatcher
 from bot_ui.handlers import router as ui_router
 from bot_ui.joiner_handlers import router as joiner_router
 from bot_ui.login_handlers import router as login_router
+from bot_ui.unpacker_handlers import router as unpacker_router
 from config.settings import ADMIN_ID, BOT_TOKEN
 from core.logger_setup import setup_logger
 from core.scheduler import start_scheduler
@@ -67,7 +68,8 @@ def create_dispatcher() -> Dispatcher:
     dp.include_router(ui_router)
     dp.include_router(login_router)
     dp.include_router(joiner_router)
-    logger.debug("Registered bot_ui, login, and joiner routers into main dispatcher.")
+    dp.include_router(unpacker_router)
+    logger.debug("Registered bot_ui, login, joiner, and unpacker routers into main dispatcher.")
     return dp
 
 

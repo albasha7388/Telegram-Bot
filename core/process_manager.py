@@ -18,6 +18,7 @@ logger = setup_logger(__name__)
 active_tasks: dict[str, asyncio.Task[Any]] = {}
 active_extractions: dict[str, asyncio.Task[Any]] = {}
 active_joiners: dict[str, asyncio.Task[Any]] = {}
+active_unpackers: dict[str, asyncio.Task[Any]] = {}
 
 # Registry mapping session names to their active sleep state: {"until": float, "conflict": bool}
 joiner_sleep_state: dict[str, dict[str, Any]] = {}
@@ -82,6 +83,41 @@ def stop_joiner_task(session_name: str) -> bool:
     logger.info("Cancelling background auto-joiner task for session '%s'...", session_name)
     task.cancel()
     logger.info("Auto-joiner task for session '%s' cancelled and removed from active pool.", session_name)
+    return True
+
+
+def is_unpacker_running(session_name: Optional[str]) -> bool:
+    """Check whether a background folder unpacker task is currently active for a session.
+
+    Args:
+        session_name: The session identifier to inspect.
+
+    Returns:
+        bool: True if the task exists and has not finished/cancelled; False otherwise.
+    """
+    if not session_name:
+        return False
+    task = active_unpackers.get(session_name)
+    return task is not None and not task.done()
+
+
+def stop_unpacker_task(session_name: str) -> bool:
+    """Cancel and remove an active folder unpacker background task.
+
+    Args:
+        session_name: Target session identifier to stop.
+
+    Returns:
+        bool: True if task was found and cancelled; False otherwise.
+    """
+    task = active_unpackers.pop(session_name, None)
+    if task is None or task.done():
+        logger.warning("Attempted to stop unpacker task for '%s', but no active task found.", session_name)
+        return False
+
+    logger.info("Cancelling background folder unpacker task for session '%s'...", session_name)
+    task.cancel()
+    logger.info("Folder unpacker task for session '%s' cancelled and removed from active pool.", session_name)
     return True
 
 

@@ -65,7 +65,13 @@ def get_main_menu(
         callback_data="menu_auto_join",
     )
 
-    # Row 4: System Statistics & Download Links Sub-menu Trigger (Side-by-Side)
+    # Row 4: Folder Unpacking Button
+    builder.button(
+        text="[ 📂 Unpack Folders ]",
+        callback_data="menu_unpack_folders",
+    )
+
+    # Row 5: System Statistics & Download Links Sub-menu Trigger (Side-by-Side)
     builder.button(
         text="[ 📊 System Stats ]",
         callback_data="menu_system_stats",
@@ -75,14 +81,14 @@ def get_main_menu(
         callback_data="menu_open_downloads",
     )
 
-    # Row 5: Sessions Manager
+    # Row 6: Sessions Manager
     builder.button(
         text="[ 👥 Sessions Manager ]",
         callback_data="menu_session_mgr",
     )
 
-    # Enforce exact row dimensions: 1, 1, 1, 2, 1
-    builder.adjust(1, 1, 1, 2, 1)
+    # Enforce exact row dimensions: 1, 1, 1, 1, 2, 1
+    builder.adjust(1, 1, 1, 1, 2, 1)
     return builder.as_markup()
 
 
@@ -324,7 +330,7 @@ def get_joiner_source_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
 
     builder.button(
-        text="[ 📁 Upload New .txt File ]",
+        text="[ 📁 Send .txt File OR Text Message ]",
         callback_data="joiner_upload",
     )
     builder.button(

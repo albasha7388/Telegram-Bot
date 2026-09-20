@@ -573,6 +573,18 @@ pytest -q
   - **24-Hour TTL Limit (`joiner.py`)**: Tests the `run_auto_join_task` Auto-Joiner loop to ensure it correctly monitors its execution time, immediately breaks out of its processing loop after 24 hours of operation, saves the remaining links to the original target file, and notifies the Admin with the modified status string.
   - **Auto-Menu Dispatch (`joiner_handlers.py`)**: Tests that when an Auto-Joiner shift is initiated, the system immediately automatically re-dispatches the Main Menu to the Admin's screen using `send_main_menu`, allowing the user to seamlessly resume navigation without being stuck on the file selection screen.
 
+## 19. Phase 4: Folder Unpacking & Auto-Joiner Dual Input
+
+* **Components:** [`userbot/unpacker.py`](file:///c:/Users/Lenovo/Desktop/Telegram/userbot/unpacker.py), [`bot_ui/unpacker_handlers.py`](file:///c:/Users/Lenovo/Desktop/Telegram/bot_ui/unpacker_handlers.py), [`bot_ui/joiner_handlers.py`](file:///c:/Users/Lenovo/Desktop/Telegram/bot_ui/joiner_handlers.py)
+* **Command:**
+  ```bash
+  pytest tests/test_unpacker.py tests/test_unpacker_handlers.py tests/test_joiner_handlers.py::test_process_text_upload_handler -v
+  ```
+* **Purpose:**
+  - **Folder Unpacking Logic (`test_unpacker.py`)**: Mocks `CheckChatlistInvite` to verify the isolation logic that ONLY public groups (groups possessing a `username`) are parsed and added to the deduplication set. Also verifies that links are chunked perfectly at a 100-link threshold per file and subsequently uploaded to the admin.
+  - **Unpacker Handlers (`test_unpacker_handlers.py`)**: Tests the dual input functionality for `F.document` and `F.text` ensuring folder slugs are extracted correctly and the background task is invoked.
+  - **Auto-Joiner Dual Input (`test_joiner_handlers.py`)**: Validates that when a user pastes text directly into the chat while in `waiting_for_upload` state, the bot cleanly extracts all `t.me/...` links using regex, dynamically builds a temporary `.txt` file, and seamlessly routes it to the existing Auto-Joiner loop without any regressions.
+
 ---
 
 ## Standard Operating Procedure (SOP) for Developers & Agents

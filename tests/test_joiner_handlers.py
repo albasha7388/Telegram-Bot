@@ -165,6 +165,40 @@ async def test_process_file_upload_handler(
 
 
 @pytest.mark.asyncio
+async def test_process_text_upload_handler(
+    mock_user: User, mock_chat: Chat, tmp_path: Path, mocker: MockerFixture
+) -> None:
+    """Test handling of pasted text containing links and task spawning."""
+    mocker.patch.object(joiner_handlers, "LINKS_DIR", tmp_path)
+    mocker.patch("bot_ui.joiner_handlers.get_user_active_session", return_value="acc1")
+    mocker.patch("bot_ui.joiner_handlers.run_auto_join_task", new_callable=AsyncMock)
+
+    mock_state = MagicMock(spec=FSMContext)
+    mock_state.get_data = AsyncMock(return_value={"session_name": "acc1"})
+    mock_state.clear = AsyncMock()
+
+    mock_message = MagicMock(spec=Message)
+    mock_message.from_user = mock_user
+    mock_message.text = "Join this:\nhttps://t.me/group1\nand this:\nhttps://t.me/group2"
+    mock_message.message_id = 1234
+    mock_message.bot = MagicMock()
+    mock_message.answer = AsyncMock()
+
+    await joiner_handlers.process_text_upload_handler(mock_message, mock_state)
+
+    mock_message.answer.assert_awaited_once()
+    mock_state.clear.assert_awaited_once()
+    
+    uploaded_file = tmp_path / "acc1" / "uploaded" / "pasted_links_1234.txt"
+    assert uploaded_file.exists()
+    
+    with open(uploaded_file, "r", encoding="utf-8") as f:
+        content = f.read()
+        assert "https://t.me/group1" in content
+        assert "https://t.me/group2" in content
+
+
+@pytest.mark.asyncio
 async def test_joiner_select_extracted_handler_renders_dates(
     mock_user: User, mock_chat: Chat, mocker: MockerFixture
 ) -> None:

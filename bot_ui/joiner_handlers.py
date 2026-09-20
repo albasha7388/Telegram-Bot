@@ -185,9 +185,10 @@ async def joiner_upload_file_handler(callback: CallbackQuery, state: FSMContext)
     await state.update_data(session_name=active_session)
 
     prompt_text = (
-        "📁 <b>Auto-Joiner: Upload File</b>\n\n"
+        "📁 <b>Auto-Joiner: Upload File OR Send Text</b>\n\n"
         f"🟢 Active Account: <code>{active_session}</code>\n\n"
-        "Please send the <code>.txt</code> file containing the Telegram links (one link per line)."
+        "Please send the <code>.txt</code> file containing the Telegram links (one link per line) "
+        "OR simply paste the links as a text message directly here."
     )
 
     if callback.message:
@@ -245,6 +246,75 @@ async def process_file_upload_handler(message: Message, state: FSMContext) -> No
     )
 
     logger.info("User %d launched Auto-Joiner on session '%s' with uploaded file '%s'.", user_id, session_name, file_path)
+
+    task = asyncio.create_task(
+        run_auto_join_task(
+            session_name=session_name,
+            file_path=str(file_path),
+            bot=message.bot,
+            admin_chat_id=user_id,
+            message_id=status_msg.message_id,
+        ),
+        name=f"joiner_{session_name}",
+    )
+    active_joiners[session_name] = task
+
+    try:
+        from bot_ui.handlers import send_main_menu
+        await send_main_menu(bot=message.bot, chat_id=user_id, session_name=session_name)
+    except Exception as exc:
+        logger.error("Failed to dispatch main menu on joiner start: %s", exc)
+
+
+@router.message(JoinerState.waiting_for_upload, F.text)
+async def process_text_upload_handler(message: Message, state: FSMContext) -> None:
+    """Handle pasted text containing links and launch the Auto-Joiner.
+
+    Args:
+        message: The incoming text message.
+        state: FSM execution context.
+    """
+    user_id = message.from_user.id if message.from_user else 0
+    state_data = await state.get_data()
+    session_name = state_data.get("session_name") or get_user_active_session(user_id)
+
+    if not session_name:
+        await message.answer("⚠️ Active session lost. Please restart.")
+        await state.clear()
+        return
+
+    # Extract all t.me links using regex
+    text_content = message.text or ""
+    links = re.findall(r"(https?://t\.me/\S+)", text_content)
+    
+    if not links:
+        await message.answer("⚠️ No valid `t.me` links found in your message. Please try again.")
+        return
+
+    target_dir = LINKS_DIR / session_name / "uploaded"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    file_path = target_dir / f"pasted_links_{message.message_id}.txt"
+
+    with open(file_path, "w", encoding="utf-8") as f:
+        for link in links:
+            f.write(f"{link}\n")
+
+    await state.clear()
+
+    start_text = (
+        "⏳ <b>Starting Auto-Joiner Engine...</b>\n\n"
+        f"📝 Extracted Links: <b>{len(links)}</b>\n"
+        f"🟢 Account: <code>{session_name}</code>\n\n"
+        "<i>Connecting MTProto client and starting joining process...</i>"
+    )
+
+    status_msg = await message.answer(
+        text=start_text,
+        parse_mode="HTML",
+        reply_markup=get_joiner_progress_keyboard(session_name),
+    )
+
+    logger.info("User %d launched Auto-Joiner on session '%s' with %d pasted links.", user_id, session_name, len(links))
 
     task = asyncio.create_task(
         run_auto_join_task(

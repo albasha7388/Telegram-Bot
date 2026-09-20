@@ -26,6 +26,11 @@ def cleanup_active_tasks() -> None:
             task.cancel()
     process_manager.active_joiners.clear()
     process_manager.joiner_sleep_state.clear()
+    
+    for task in list(process_manager.active_unpackers.values()):
+        if not task.done():
+            task.cancel()
+    process_manager.active_unpackers.clear()
 
     from userbot.client import active_userbot_clients
     active_userbot_clients.clear()

@@ -41,5 +41,11 @@ class DownloadState(StatesGroup):
     selecting_file = State()
 
 
+class UnpackerState(StatesGroup):
+    """FSM states governing the folder unpacking workflow."""
+
+    waiting_for_input = State()
+
+
 
 

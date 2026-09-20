@@ -28,10 +28,10 @@ from bot_ui.states import DownloadState, ExtractionState, SessionState
 # --- 1. Keyboard Structure & Dynamic Toggle Tests ---
 
 def test_get_main_menu_all_idle() -> None:
-    """Test main menu renders 5 rows (1, 1, 1, 2, 1 layout) when both workers are idle."""
+    """Test main menu renders 6 rows (1, 1, 1, 1, 2, 1 layout) when both workers are idle."""
     markup = get_main_menu(is_userbot_on=False, is_extractor_on=False)
     assert markup.inline_keyboard is not None
-    assert len(markup.inline_keyboard) == 5
+    assert len(markup.inline_keyboard) == 6
 
     # Row 1: Auto-Reply (1 button)
     row1 = markup.inline_keyboard[0]
@@ -51,26 +51,32 @@ def test_get_main_menu_all_idle() -> None:
     assert row3[0].text == "[ 🚪 Auto-Join Groups ]"
     assert row3[0].callback_data == "menu_auto_join"
 
-    # Row 4: Stats and Download (2 buttons)
+    # Row 4: Unpack Folders (1 button)
     row4 = markup.inline_keyboard[3]
-    assert len(row4) == 2
-    assert row4[0].text == "[ 📊 System Stats ]"
-    assert row4[0].callback_data == "menu_system_stats"
-    assert row4[1].text == "[ 📂 Download Links ]"
-    assert row4[1].callback_data == "menu_open_downloads"
+    assert len(row4) == 1
+    assert row4[0].text == "[ 📂 Unpack Folders ]"
+    assert row4[0].callback_data == "menu_unpack_folders"
 
-    # Row 5: Sessions Manager (1 button)
+    # Row 5: Stats and Download (2 buttons)
     row5 = markup.inline_keyboard[4]
-    assert len(row5) == 1
-    assert row5[0].text == "[ 👥 Sessions Manager ]"
-    assert row5[0].callback_data == "menu_session_mgr"
+    assert len(row5) == 2
+    assert row5[0].text == "[ 📊 System Stats ]"
+    assert row5[0].callback_data == "menu_system_stats"
+    assert row5[1].text == "[ 📂 Download Links ]"
+    assert row5[1].callback_data == "menu_open_downloads"
+
+    # Row 6: Sessions Manager (1 button)
+    row6 = markup.inline_keyboard[5]
+    assert len(row6) == 1
+    assert row6[0].text == "[ 👥 Sessions Manager ]"
+    assert row6[0].callback_data == "menu_session_mgr"
 
 
 def test_get_main_menu_userbot_running() -> None:
     """Test main menu toggles Auto-Reply button to Stop on Row 1 when active."""
     markup = get_main_menu(is_userbot_on=True, is_extractor_on=False)
     assert markup.inline_keyboard is not None
-    assert len(markup.inline_keyboard) == 5
+    assert len(markup.inline_keyboard) == 6
 
     row1 = markup.inline_keyboard[0]
     row2 = markup.inline_keyboard[1]
@@ -86,7 +92,7 @@ def test_get_main_menu_extractor_running() -> None:
     """Test main menu toggles Link Extractor button to Stop on Row 2 when active."""
     markup = get_main_menu(is_userbot_on=False, is_extractor_on=True)
     assert markup.inline_keyboard is not None
-    assert len(markup.inline_keyboard) == 5
+    assert len(markup.inline_keyboard) == 6
 
     row1 = markup.inline_keyboard[0]
     row2 = markup.inline_keyboard[1]
@@ -102,7 +108,7 @@ def test_get_main_menu_both_running() -> None:
     """Test main menu displays Stop buttons for both concurrent background tasks."""
     markup = get_main_menu(is_userbot_on=True, is_extractor_on=True)
     assert markup.inline_keyboard is not None
-    assert len(markup.inline_keyboard) == 5
+    assert len(markup.inline_keyboard) == 6
 
     row1 = markup.inline_keyboard[0]
     row2 = markup.inline_keyboard[1]
