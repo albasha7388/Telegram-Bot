@@ -20,6 +20,11 @@ from core.file_manager import LINKS_DIR
 from core.logger_setup import setup_logger
 from pyrogram import Client
 
+from config.settings import API_ID, API_HASH
+from userbot.session_manager import get_session_string
+
+SESSIONS_DIR = Path(__file__).resolve().parent.parent / "sessions"
+
 logger = setup_logger(__name__)
 
 async def run_folder_unpacker_task(
@@ -41,7 +46,25 @@ async def run_folder_unpacker_task(
     logger.info("Starting Folder Unpacker for session '%s' with %d links", session_name, len(folder_links))
 
     # Initialize Pyrogram client
-    client = Client(session_name, workdir=str(Path(__file__).resolve().parent.parent / "sessions"))
+    session_str = get_session_string(session_name)
+    if session_str:
+        client = Client(
+            name=session_name,
+            session_string=session_str,
+            api_id=API_ID,
+            api_hash=API_HASH,
+            in_memory=True,
+            no_updates=True,
+        )
+    else:
+        SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
+        client = Client(
+            name=session_name,
+            api_id=API_ID,
+            api_hash=API_HASH,
+            workdir=str(SESSIONS_DIR),
+            no_updates=True,
+        )
     if not client:
         logger.error("Failed to load client for session '%s'. Aborting unpacker task.", session_name)
         await _abort_unpacker(bot, admin_chat_id, message_id, session_name, "Session client could not be loaded.")

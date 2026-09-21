@@ -44,7 +44,10 @@ async def test_run_folder_unpacker_task_filters_and_chunks(tmp_path) -> None:
     
     with patch("userbot.unpacker.Client", return_value=client_mock), \
          patch("core.process_manager.is_unpacker_running", return_value=True), \
-         patch("userbot.unpacker.LINKS_DIR", tmp_path):
+         patch("userbot.unpacker.LINKS_DIR", tmp_path), \
+         patch("userbot.unpacker.get_session_string", return_value="dummy_session_string"), \
+         patch("userbot.unpacker.API_ID", 12345), \
+         patch("userbot.unpacker.API_HASH", "dummy_hash"):
         
         await run_folder_unpacker_task(
             session_name=session_name,
