@@ -41,7 +41,7 @@ async def run_folder_unpacker_task(
     logger.info("Starting Folder Unpacker for session '%s' with %d links", session_name, len(folder_links))
 
     # Initialize Pyrogram client
-    client = Client(session_name, workdir="sessions")
+    client = Client(session_name, workdir=str(Path(__file__).resolve().parent.parent / "sessions"))
     if not client:
         logger.error("Failed to load client for session '%s'. Aborting unpacker task.", session_name)
         await _abort_unpacker(bot, admin_chat_id, message_id, session_name, "Session client could not be loaded.")
